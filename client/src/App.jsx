@@ -34,7 +34,8 @@ export default function App() {
   const [threshold, setThreshold] = useState(10);
   const [isAdmin, setIsAdmin] = useState(Boolean(getAdminKey()));
   const [proposeParent, setProposeParent] = useState(null);
-  const [reorg, setReorg] = useState(null); // { id, text } of the node being moved
+  const [reorg, setReorg] = useState(null); // { ids: [...], label } of nodes being moved
+  const [selectedIds, setSelectedIds] = useState([]);
   const [banner, setBanner] = useState(null);
   const votedRef = useRef(loadVoted());
   const wsRef = useRef(null);
@@ -151,31 +152,60 @@ export default function App() {
     [loadMap]
   );
 
-  // Re-org: "Move" arms a node, then the next node/canvas click reparents it.
-  const onStartReorg = useCallback((nodeId, text) => {
-    setReorg({ id: nodeId, text });
+  const clearSelection = useCallback(() => {
+    setRfNodes((ns) => ns.map((n) => (n.selected ? { ...n, selected: false } : n)));
+    setSelectedIds([]);
+  }, [setRfNodes]);
+
+  const onSelectionChange = useCallback(({ nodes }) => {
+    setSelectedIds(nodes.map((n) => n.id));
+  }, []);
+
+  // Re-org: "Move" arms one or many nodes, then the next node/canvas click
+  // reparents the whole set. Single and bulk moves share this one path.
+  const onStartReorg = useCallback((ids, label) => {
+    setReorg({ ids, label });
   }, []);
 
   const applyReparent = useCallback(
     async (newParentId) => {
       const moving = reorg;
       setReorg(null);
-      if (!moving || moving.id === newParentId) return;
+      if (!moving) return;
+      const ids = moving.ids.filter((id) => id !== newParentId); // never onto self
+      if (!ids.length) return;
       try {
-        await api.adminReparent(moving.id, newParentId);
-        flash(newParentId ? 'Node moved under new parent.' : 'Node detached to a root.');
+        const { moved, failed } = await api.bulkReparent(ids, newParentId);
+        const skipped = failed?.length ? `, ${failed.length} skipped` : '';
+        const plural = moved === 1 ? '' : 's';
+        flash(
+          newParentId
+            ? `Moved ${moved} node${plural} under new parent${skipped}.`
+            : `Detached ${moved} node${plural} to a root${skipped}.`
+        );
+        clearSelection();
         await loadMap(mapIdRef.current);
       } catch (e) {
-        const map = {
-          'would-create-cycle': "Can't move a node under its own descendant.",
-          'parent-not-committed': 'New parent must be a committed node.',
-          'cannot-parent-to-self': "Can't parent a node to itself.",
-        };
-        flash(map[e.message] || `Move failed: ${e.message}`);
+        flash(`Move failed: ${e.message}`);
       }
     },
-    [reorg, loadMap]
+    [reorg, loadMap, clearSelection]
   );
+
+  const onBulkMove = useCallback(() => {
+    setReorg({ ids: selectedIds, label: `${selectedIds.length} nodes` });
+  }, [selectedIds]);
+
+  const onBulkDelete = useCallback(async () => {
+    try {
+      const { deleted } = await api.bulkDelete(selectedIds);
+      flash(`Deleted ${deleted} node${deleted === 1 ? '' : 's'} and their branches.`);
+      clearSelection();
+      await loadMap(mapIdRef.current);
+    } catch (e) {
+      flash(`Delete failed: ${e.message}`);
+    }
+  }, [selectedIds, loadMap, clearSelection]);
 
   // Esc cancels an in-progress move.
   useEffect(() => {
@@ -272,7 +302,7 @@ export default function App() {
       onDismiss,
       onDelete,
       onStartReorg,
-      reorgId: reorg?.id || null,
+      reorgIds: reorg?.ids || [],
     }),
     [threshold, isAdmin, hasVoted, onVote, onCommit, onDismiss, onDelete, onStartReorg, reorg]
   );
@@ -316,7 +346,7 @@ export default function App() {
 
         {reorg && (
           <div className="banner banner--reorg">
-            Moving “{reorg.text}” — click a node to make it the new parent, or click
+            Moving {reorg.label} — click a node to make it the new parent, or click
             empty canvas to detach to a root. (Esc to cancel)
           </div>
         )}
@@ -332,6 +362,11 @@ export default function App() {
                 onNodeDragStop={onNodeDragStop}
                 onNodeClick={reorg ? (_e, node) => applyReparent(node.id) : undefined}
                 onPaneClick={reorg ? () => applyReparent(null) : undefined}
+                onSelectionChange={onSelectionChange}
+                selectionOnDrag
+                panOnDrag={[1, 2]}
+                selectionKeyCode="Shift"
+                multiSelectionKeyCode={['Meta', 'Control', 'Shift']}
                 nodeTypes={nodeTypes}
                 fitView
                 proOptions={{ hideAttribution: true }}
@@ -344,6 +379,21 @@ export default function App() {
             </ReactFlowProvider>
           </div>
           <ActivityFeed activity={map?.activity} />
+
+          {isAdmin && selectedIds.length >= 2 && !reorg && (
+            <div className="bulkbar">
+              <span className="bulkbar__count">{selectedIds.length} selected</span>
+              <button className="primarybtn" onClick={onBulkMove}>
+                Move
+              </button>
+              <button className="ghostbtn ghostbtn--danger" onClick={onBulkDelete}>
+                Delete
+              </button>
+              <button className="ghostbtn" onClick={clearSelection}>
+                Clear
+              </button>
+            </div>
+          )}
         </div>
 
         {proposeParent && (

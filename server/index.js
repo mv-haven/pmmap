@@ -148,6 +148,45 @@ api.post('/nodes/:id/reparent', requireAdmin, async (req, res) => {
   }
 });
 
+// --- Bulk admin actions (one broadcast for the whole batch) ---
+// Tolerant by design: a node already removed by a cascade, or a reparent that
+// fails the cycle guard, is skipped rather than aborting the batch.
+api.post('/nodes/bulk-delete', requireAdmin, async (req, res) => {
+  const ids = Array.isArray(req.body?.ids) ? req.body.ids : [];
+  let mapId = null;
+  let deleted = 0;
+  for (const id of ids) {
+    try {
+      const r = await store.deleteNode({ nodeId: id });
+      mapId = r.mapId;
+      deleted += 1;
+    } catch {
+      // Already gone (e.g. cascaded by an ancestor in this same batch).
+    }
+  }
+  if (mapId) await broadcastMap(mapId);
+  res.json({ deleted });
+});
+
+api.post('/nodes/bulk-reparent', requireAdmin, async (req, res) => {
+  const ids = Array.isArray(req.body?.ids) ? req.body.ids : [];
+  const newParentId = req.body?.newParentId ?? null;
+  let mapId = null;
+  let moved = 0;
+  const failed = [];
+  for (const id of ids) {
+    try {
+      const node = await store.reparent({ nodeId: id, newParentId });
+      mapId = node.mapId;
+      moved += 1;
+    } catch (e) {
+      failed.push({ id, error: e.message });
+    }
+  }
+  if (mapId) await broadcastMap(mapId);
+  res.json({ moved, failed });
+});
+
 app.use('/api', api);
 
 // --- Serve the built client in production ---

@@ -10,7 +10,7 @@ function MindNode({ data }) {
   const proposed = data.status === 'proposed';
   const voted = hasVoted(data.id);
 
-  const moving = actions.reorgId === data.id;
+  const moving = actions.reorgIds?.includes(data.id);
 
   return (
     <div
@@ -50,7 +50,7 @@ function MindNode({ data }) {
             <span className="node__admin">
               <button
                 className="mini mini--move nodrag"
-                onClick={() => actions.onStartReorg(data.id, data.text)}
+                onClick={() => actions.onStartReorg([data.id], `“${data.text}”`)}
               >
                 Move
               </button>
