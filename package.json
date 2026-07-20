@@ -1,9 +1,9 @@
 {
-  "name": "mindmap-platform",
+  "name": "pmmap",
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Collaborative mind-map platform with proposal-and-merge (GitHub-style) contributions",
+  "description": "PMMap (powered by Haven) — a collaborative, agent-first map of property-management terms and definitions, standardized by vote",
   "engines": {
     "node": ">=20"
   },

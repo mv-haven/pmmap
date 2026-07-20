@@ -1,6 +1,7 @@
-# Contributing to MindMerge
+# Contributing to PMMap
 
-Thanks for your interest in MindMerge. Contributions are welcome.
+Thanks for your interest in PMMap (powered by Haven). Contributions are welcome —
+both to the codebase and to the map of property-management standards itself.
 
 ## Getting set up
 
@@ -27,4 +28,9 @@ Open an issue describing what you expected and what happened. For a bug, steps t
 
 ## Scope
 
-MindMerge is intentionally small: a collaborative mind map where proposals earn their way in by vote, with admin override. When proposing a feature, a short note on why it belongs in the core (vs. a fork) is appreciated.
+PMMap is intentionally small: a collaborative map of property-management terms
+where proposals earn their way in by vote, with maintainer override. When
+proposing a feature, a short note on why it belongs in the core (vs. a fork) is
+appreciated. To contribute to the *map* (terms and definitions) rather than the
+code, see [docs/working-with-agents.md](docs/working-with-agents.md) — it works
+the same whether you're a person or an agent.

@@ -1,65 +1,97 @@
-# MindMerge — collaborative mind map with proposal-and-merge
+# PMMap — the shared language of property management
 
-**Live demo → https://mindmerge-b5sm.onrender.com**
+**Powered by Haven · Live → https://mindmerge-b5sm.onrender.com**
 
-A mind-map platform where the map is a shared "main branch." Anyone can propose
-new nodes; the crowd upvotes them; and when a proposal reaches the vote
-threshold it **auto-commits** into the master map. Admins can commit or dismiss
-any proposal directly, GitHub-maintainer style.
+PMMap is a living, collaborative map of **property management** — its domains,
+terms, and definitions. The industry runs on words like *delinquency*, *unit
+turn*, *effective rent*, and *make-ready*, and every firm defines them a little
+differently. PMMap is where the field converges on shared standards: anyone
+proposes a term or definition, the community votes, and consensus commits to a
+canonical map. Maintainers at Haven can ratify or reject directly.
 
-Open source under the [MIT License](LICENSE) · contributions welcome, see
-[CONTRIBUTING.md](CONTRIBUTING.md).
+It's version control for how an industry talks about itself, and it's
+**agent-first** — the same API people use is a clean interface for AI agents to
+draft, connect, and audit definitions.
+
+Open source under the [MIT License](LICENSE). Contributions welcome
+([CONTRIBUTING.md](CONTRIBUTING.md)).
 
 ## Concepts
 
-- **Master map** — the committed tree everyone sees (solid nodes).
-- **Proposal** — a pending child node (dashed) attached to a committed node. Like a PR.
-- **Upvote** — one vote per browser. At the threshold, the proposal commits automatically.
-- **Admin** — holds the admin key; can **Commit now** or **Dismiss** any proposal.
-- **Commit log** — the side feed of everything that has merged.
+- **Canonical map** — the committed graph: agreed domains and terms.
+- **Proposal** — a pending term/definition, attached to a domain. Like a PR.
+- **Vote** — one per person; at the threshold a proposal commits automatically.
+- **Maintainer (admin)** — holds the key; can ratify, reject, move, or delete.
+- **A graph, not a tree** — a term can belong to more than one domain (a "Unit
+  Turn" is both Leasing and Maintenance). Deletion is DAG-aware: a shared term
+  survives as long as it still has a parent.
+- **Commit log** — the running history of what became standard, and when.
+
+## Agent-first
+
+Every action a person can take, an agent can take over plain HTTP. Point Claude
+at a running map to draft definitions, connect terms across domains, reconcile
+conflicts, and fill gaps — no special integration required.
+
+- `CLAUDE.md` orients an agent working on the **codebase**.
+- [`docs/working-with-agents.md`](docs/working-with-agents.md) has the API
+  surface, ready-to-use **prompts**, and a minimal populate/curate loop.
 
 ## Run locally (zero setup)
 
 ```bash
+git clone https://github.com/mv-haven/mindmerge.git pmmap
+cd pmmap
 npm install
 npm --prefix client install
-cp .env.example .env      # optionally set VOTE_THRESHOLD=2 for easy testing
+cp .env.example .env      # set ADMIN_KEY; VOTE_THRESHOLD=2 makes voting easy to test
 npm run dev
 ```
 
-- Client (Vite): http://localhost:5173
+- Board (Vite): http://localhost:5173 · the landing page is at `/`, the board at `/app`
 - API + WebSocket (Express): http://localhost:3001
-- With no `DATABASE_URL`, data persists to `data/store.json`.
+- With no `DATABASE_URL`, data persists to `data/store.json` — nothing else to install.
 
-To try the admin flow: set `ADMIN_KEY` in `.env`, then click **Unlock admin**
-in the app and paste the key.
+To use admin powers: set `ADMIN_KEY` in `.env`, click **Unlock admin** in the app,
+and paste the key.
 
-## Architecture
+## How to work on it
+
+```bash
+npm test          # spawns the server and exercises the API end to end
+npm run build     # builds the client the server serves in production
+```
+
+The codebase is intentionally small:
 
 ```
-client/   React + React Flow canvas, dagre auto-layout, WebSocket live sync
-server/   Express REST + ws; store/ swaps memory<->postgres by DATABASE_URL
-render.yaml  One Render Web Service + managed Postgres
+client/   React + React Flow canvas (dagre layout), Vite
+server/   Express REST + ws; store/ swaps memory <-> postgres by DATABASE_URL
 ```
 
-The storage layer (`server/store/`) exposes one async interface with two
-implementations, chosen at boot: in-memory+JSON file for local dev, Postgres in
-production. Nothing above the store knows which is active.
+The storage layer (`server/store/`) is one async interface with two
+implementations — an in-memory + JSON-file store for local dev, and Postgres for
+production, chosen at boot by whether `DATABASE_URL` exists. **Keep the two stores
+behaviorally identical**; the memory store is the source of truth for tests.
+
+## Data & scale
+
+Locally (and in the current hosted deploy) PMMap runs on the JSON-file store: the
+whole map is held in memory and rewritten to `data/store.json` on each change.
+Great for zero setup and small-to-medium maps; it is not durable and does not
+scale to very large files. The production answer is **Postgres** — set
+`DATABASE_URL` and the store switches to targeted, durable, indexed writes with
+no code change.
 
 ## Deploy to Render
 
-Push to GitHub, then in Render create a **Blueprint** from this repo. `render.yaml`
-provisions the web service and a Postgres database, and generates an `ADMIN_KEY`
-for you (view it in the service's Environment tab). Build runs `npm run build`
-(builds the client); start runs `npm start`.
+`render.yaml` provisions a web service (and, if you enable it, a managed Postgres).
+Push to GitHub, then create a **Blueprint** on Render from the repo.
 
-## Scope (the "bones") and what's next
-
-In: canvas, propose/vote/commit, admin override, live sync, commit log,
-multi-parent (DAG) connections, multi-select + bulk actions, deploy.
-Deliberately deferred: accounts/auth, read-only links, stacked proposals
-(proposing on proposals), comments, version history, image/PDF export, real
-per-user vote integrity, and CRDT merge (currently last-write-wins).
+> **Note:** the current hosted service was created from a *public repo URL*, which
+> has **no GitHub webhook**, so pushes do **not** auto-deploy. Trigger a deploy
+> manually via the Render dashboard or API, or connect Render's GitHub app to the
+> repo to enable auto-deploy.
 
 ## License
 

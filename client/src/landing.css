@@ -32,8 +32,9 @@
   max-width: 1120px; margin: 0 auto; padding: 26px 28px;
   display: flex; align-items: center; justify-content: space-between;
 }
-.lg-wordmark { font-family: var(--display); font-weight: 600; font-size: 21px; letter-spacing: -0.01em; }
+.lg-wordmark { font-family: var(--display); font-weight: 600; font-size: 21px; letter-spacing: -0.01em; display: inline-flex; align-items: baseline; gap: 9px; }
 .lg-diamond { color: var(--accent); }
+.lg-by { font-family: var(--mono); font-size: 11px; font-weight: 400; color: var(--ink-soft); letter-spacing: 0; }
 .lg-nav { display: flex; align-items: center; gap: 26px; font-weight: 500; font-size: 15px; }
 .lg-nav a:not(.lg-btn):hover { color: var(--accent-ink); }
 
@@ -122,6 +123,22 @@
 .lg-card h3 { font-family: var(--display); font-weight: 600; font-size: 22px; margin: 0 0 10px; letter-spacing: -0.01em; }
 .lg-card p { margin: 0; color: var(--ink-soft); line-height: 1.55; font-size: 15.5px; }
 
+/* ---- agent-first ---- */
+.lg-agents { max-width: 1120px; margin: 0 auto; padding: 20px 28px 90px; }
+.lg-agents__head { max-width: 46em; }
+.lg-agents__lede { font-size: 18px; line-height: 1.55; color: var(--ink-soft); margin: -20px 0 34px; }
+.lg-prompts { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+.lg-prompt {
+  font-family: var(--mono); font-size: 14px; line-height: 1.5; color: var(--ink);
+  background: #15130d; color: #ece7db; border-radius: 14px; padding: 22px 20px;
+  position: relative; display: flex; gap: 10px;
+}
+.lg-prompt__caret { color: #6ee7a8; font-weight: 500; }
+.lg-agents__foot { margin: 26px 0 0; font-size: 15.5px; color: var(--ink-soft); }
+.lg-agents__foot code { font-family: var(--mono); font-size: 13.5px; background: rgba(79, 70, 229, 0.1); color: var(--accent-ink); padding: 2px 6px; border-radius: 5px; }
+.lg-agents__foot a { color: var(--accent-ink); font-weight: 600; }
+.lg-agents__foot a:hover { text-decoration: underline; }
+
 /* ---- final CTA ---- */
 .lg-final {
   max-width: 1120px; margin: 0 auto 40px; padding: 68px 28px; text-align: center;
@@ -150,5 +167,6 @@
   .lg-steps { grid-template-columns: 1fr; }
   .lg-feat__grid { grid-template-columns: 1fr; }
   .lg-card--wide { grid-column: span 1; }
+  .lg-prompts { grid-template-columns: 1fr; }
   .lg-nav a:not(.lg-btn) { display: none; }
 }

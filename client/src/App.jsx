@@ -384,7 +384,9 @@ export default function App() {
       <div className="app">
         <header className="topbar">
           <div className="topbar__left">
-            <span className="logo">◇ MindMerge</span>
+            <span className="logo">
+              ◇ PMMap <span className="logo__by">powered by Haven</span>
+            </span>
             <span className="submeta">
               {counts.committed} committed · {counts.proposed} proposed · merge at {threshold} ▲
             </span>
