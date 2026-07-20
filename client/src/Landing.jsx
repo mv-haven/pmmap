@@ -1,4 +1,5 @@
 import './landing.css';
+import { PoweredByHaven } from './components/HavenBrand.jsx';
 
 const REPO = 'https://github.com/mv-haven/pmmap';
 const HAVEN = 'https://usehaven.ai';
@@ -49,10 +50,10 @@ export default function Landing() {
   return (
     <div className="lg">
       <header className="lg-top">
-        <a className="lg-wordmark" href="/">
-          <span className="lg-diamond">◇</span> PMMap
-          <a className="lg-by" href={HAVEN} target="_blank" rel="noreferrer">powered by Haven</a>
-        </a>
+        <div className="lg-brand">
+          <a className="lg-wordmark" href="/"><span className="lg-diamond">◇</span> PMMap</a>
+          <PoweredByHaven className="lg-by" />
+        </div>
         <nav className="lg-nav">
           <a href="/why">Why</a>
           <a href="#agents">For agents</a>

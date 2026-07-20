@@ -33,9 +33,13 @@
   max-width: 1120px; margin: 0 auto; padding: 26px 28px;
   display: flex; align-items: center; justify-content: space-between;
 }
-.lg-wordmark { font-family: var(--display); font-weight: 800; font-size: 20px; letter-spacing: -0.02em; display: inline-flex; align-items: baseline; gap: 9px; }
+.lg-brand { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.lg-wordmark { font-family: var(--display); font-weight: 800; font-size: 20px; letter-spacing: -0.02em; display: inline-flex; align-items: baseline; gap: 4px; }
 .lg-diamond { color: var(--accent); }
-.lg-by { font-family: var(--mono); font-size: 11px; font-weight: 400; color: var(--ink-soft); letter-spacing: 0; }
+.lg-by { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 500; color: var(--ink-soft); }
+.lg-by b { font-weight: 700; color: var(--ink); }
+.lg-by svg { color: var(--accent); position: relative; top: 1px; }
+.lg-by:hover b { color: var(--accent-ink); }
 .lg-nav { display: flex; align-items: center; gap: 26px; font-weight: 500; font-size: 15px; }
 .lg-nav a:not(.lg-btn):hover { color: var(--accent-ink); }
 

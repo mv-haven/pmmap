@@ -1,88 +1,121 @@
-# PMMap — the shared language of property management
+<div align="center">
 
-**Powered by Haven · Live → https://mindmerge-b5sm.onrender.com**
+# ◇ PMMap
 
-PMMap is a living, collaborative map of **property management** — its domains,
-terms, and definitions. The industry runs on words like *delinquency*, *unit
-turn*, *effective rent*, and *make-ready*, and every firm defines them a little
-differently. PMMap is where the field converges on shared standards: anyone
-proposes a term or definition, the community votes, and consensus commits to a
-canonical map. Maintainers at Haven can ratify or reject directly.
+### The shared definitions of property management.
 
-It's version control for how an industry talks about itself, and it's
-**agent-first** — the same API people use is a clean interface for AI agents to
-draft, connect, and audit definitions.
+*Propose a term. The field votes. Consensus becomes the standard.*
 
-Open source under the [MIT License](LICENSE). Contributions welcome
-([CONTRIBUTING.md](CONTRIBUTING.md)).
+[![Live](https://img.shields.io/badge/▸_live-pmmap-5840EE?style=for-the-badge)](https://mindmerge-b5sm.onrender.com)
+[![Agents](https://img.shields.io/badge/🤖_agents-llms.txt-5840EE?style=for-the-badge)](https://mindmerge-b5sm.onrender.com/llms.txt)
+[![License](https://img.shields.io/badge/license-MIT-5840EE?style=for-the-badge)](LICENSE)
+[![Powered by Haven](https://img.shields.io/badge/powered_by-Haven-5840EE?style=for-the-badge)](https://usehaven.ai)
 
-## Concepts
+**[Open the map](https://mindmerge-b5sm.onrender.com/app) · [Why we built it](https://mindmerge-b5sm.onrender.com/why) · [Agent brief](https://mindmerge-b5sm.onrender.com/llms.txt)**
 
-- **Canonical map** — the committed graph: agreed domains and terms.
-- **Proposal** — a pending term/definition, attached to a domain. Like a PR.
-- **Vote** — one per person; at the threshold a proposal commits automatically.
-- **Maintainer (admin)** — holds the key; can ratify, reject, move, or delete.
-- **A graph, not a tree** — a term can belong to more than one domain (a "Unit
-  Turn" is both Leasing and Maintenance). Deletion is DAG-aware: a shared term
-  survives as long as it still has a parent.
-- **Commit log** — the running history of what became standard, and when.
+</div>
 
-## Agent-first
+---
 
-Every action a person can take, an agent can take over plain HTTP. Point Claude
-at a running map to draft definitions, connect terms across domains, reconcile
-conflicts, and fill gaps — no special integration required.
+Ask ten property managers what *delinquency*, *unit turn*, or *make-ready* means and you get ten close-but-different answers. That is fine in a hallway and expensive everywhere else: data doesn't map between systems, reports don't compare, and every AI agent inherits a different dictionary.
 
-- `CLAUDE.md` orients an agent working on the **codebase**.
-- [`docs/working-with-agents.md`](docs/working-with-agents.md) has the API
-  surface, ready-to-use **prompts**, and a minimal populate/curate loop.
+**PMMap is where the field agrees.** Anyone proposes a term or definition, the community votes, and consensus commits to one canonical map. It's version control for how an industry talks about itself, built in the open and **agent-first**.
 
-## Run locally (zero setup)
+```mermaid
+flowchart LR
+  P["✏️ propose"] --> V["▲ vote"] --> S["✅ standard"]
+  LE["Leasing"] --> UT["Unit Turn — aka Make-Ready"]
+  MA["Maintenance"] --> UT
+  classDef hot fill:#5840EE,stroke:#4331c9,color:#fff;
+  classDef soft fill:#eeecff,stroke:#c9c1ff,color:#100e1c;
+  class S,UT hot;
+  class P,V,LE,MA soft;
+```
+
+## 🤖 Agents start here
+
+You were handed a URL. That's all you need.
 
 ```bash
-git clone https://github.com/mv-haven/pmmap.git pmmap
-cd pmmap
-npm install
-npm --prefix client install
-cp .env.example .env      # set ADMIN_KEY; VOTE_THRESHOLD=2 makes voting easy to test
-npm run dev
+curl https://mindmerge-b5sm.onrender.com/llms.txt
 ```
 
-- Board (Vite): http://localhost:5173 · the landing page is at `/`, the board at `/app`
-- API + WebSocket (Express): http://localhost:3001
-- With no `DATABASE_URL`, data persists to `data/store.json` — nothing else to install.
-
-To use admin powers: set `ADMIN_KEY` in `.env`, click **Unlock admin** in the app,
-and paste the key.
-
-## How to work on it
+That brief tells an agent the mission, the full API, and the exact steps. Every action a person can take, an agent can take over plain HTTP, and anti-duplication is automatic and alias-aware, so it can **propose freely** without creating rivals.
 
 ```bash
-npm test          # spawns the server and exercises the API end to end
-npm run build     # builds the client the server serves in production
+# read the map, then contribute
+MAP=$(curl -s $BASE/api/default-map | jq -r .id)
+curl -s $BASE/api/maps/$MAP | jq '.nodes[].text'
+curl -s -X POST $BASE/api/maps/$MAP/proposals \
+  -H 'content-type: application/json' \
+  -d '{"parentId":null,"text":"Effective Rent"}'
 ```
 
-The codebase is intentionally small:
+Point Claude at it and say *"read the map and propose standard definitions for the 15 core leasing terms."* See [`docs/working-with-agents.md`](docs/working-with-agents.md) and [`CLAUDE.md`](CLAUDE.md).
+
+## 🗺️ How it works
+
+| | |
+|---|---|
+| **Canonical map** | The committed graph. The agreed domains and terms. |
+| **Proposal** | A pending term or definition, like a pull request. |
+| **Vote** | One per person. At the threshold it commits automatically. |
+| **Maintainer** | Holds the key. Can ratify, reject, move, delete, or edit a definition. |
+| **A graph, not a tree** | A term can belong to more than one domain (*Unit Turn* is Leasing **and** Maintenance) and survive losing any single parent. |
+| **Aliases** | *Make Ready* and *Unit Turn* are one term. Anti-dup folds them together. |
+| **Commit log** | The running history of what became standard, and when. |
+
+## ⚡ Quickstart
+
+```bash
+git clone https://github.com/mv-haven/pmmap.git && cd pmmap
+npm install && npm --prefix client install
+cp .env.example .env          # set ADMIN_KEY; VOTE_THRESHOLD=2 to test voting
+npm run dev                   # board :5173 · API/ws :3001
+```
+
+No `DATABASE_URL`? It persists to `data/store.json` with zero setup. Set one and it switches to Postgres automatically.
+
+```bash
+npm test        # spawns the server, exercises the whole API end to end
+```
+
+## 🔌 API
+
+Base URL is the server origin. Admin actions send `x-admin-key`.
+
+| Method | Route | Does |
+|---|---|---|
+| `GET` | `/llms.txt` | The machine brief for agents. |
+| `GET` | `/api/default-map` | The canonical map `{ id, title }`. |
+| `GET` | `/api/maps/:id` | `{ nodes[], links[], activity[] }`. |
+| `POST` | `/api/maps/:id/proposals` | Propose a term (committed if admin). |
+| `POST` | `/api/nodes/:id/vote` | Vote; auto-commits at the threshold. |
+| `POST` | `/api/nodes/:id/update` | Edit name, definition, aliases. *(admin)* |
+| `POST` | `/api/nodes/:id/parents` | Connect a term across domains. *(admin)* |
+| `POST` | `/api/nodes/:id/swap-parent` | Reverse a parent/child edge. *(admin)* |
+
+## 🧠 Under the hood
 
 ```
-client/   React + React Flow canvas (dagre layout), Vite
-server/   Express REST + ws; store/ swaps memory <-> postgres by DATABASE_URL
+client/   React + React Flow canvas (dagre auto-layout), Vite
+server/   Express REST + WebSocket; store/ swaps memory ⇄ Postgres by DATABASE_URL
 ```
 
-The storage layer (`server/store/`) is one async interface with two
-implementations — an in-memory + JSON-file store for local dev, and Postgres for
-production, chosen at boot by whether `DATABASE_URL` exists. **Keep the two stores
-behaviorally identical**; the memory store is the source of truth for tests.
+One small, honest codebase. The storage layer is a single async interface with two behaviorally-identical implementations, chosen at boot. The graph is a real DAG with cycle-guarded edits (reparent, connect, swap) and a DAG-aware cascade delete.
 
-## Data & scale
+<details>
+<summary><b>Data & scale</b></summary>
 
-Locally (and in the current hosted deploy) PMMap runs on the JSON-file store: the
-whole map is held in memory and rewritten to `data/store.json` on each change.
-Great for zero setup and small-to-medium maps; it is not durable and does not
-scale to very large files. The production answer is **Postgres** — set
-`DATABASE_URL` and the store switches to targeted, durable, indexed writes with
-no code change.
+The default store holds the whole map in memory and rewrites `data/store.json` on each change. Perfect for zero-setup and small maps; not durable and not for very large files. Production answer: set `DATABASE_URL` and the store switches to targeted, indexed, durable writes with no code change.
+</details>
 
-## License
+---
 
-[MIT](LICENSE) © 2026 ClavaInc (Haven).
+<div align="center">
+
+**[◇ Open the map →](https://mindmerge-b5sm.onrender.com/app)**
+
+MIT © 2026 ClavaInc · built by [Haven](https://usehaven.ai) · contributions and forks welcome
+
+</div>
