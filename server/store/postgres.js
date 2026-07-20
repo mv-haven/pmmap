@@ -3,6 +3,11 @@
 import pg from 'pg';
 import { nanoid } from 'nanoid';
 
+// Normalized text key for duplicate detection. Keep identical to memory.js.
+function normalizeText(t) {
+  return (t || '').trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
 export function createPostgresStore({ threshold, connectionString }) {
   const pool = new pg.Pool({
     connectionString,
@@ -102,19 +107,41 @@ export function createPostgresStore({ threshold, connectionString }) {
     },
 
     async createProposal({ mapId, parentId, text, color, authorId }) {
-      const { rows: parents } = await pool.query(
-        'SELECT * FROM nodes WHERE id = $1 AND map_id = $2',
-        [parentId, mapId]
+      // parentId null/empty => a new unconnected (root/island) node.
+      const parent = parentId || null;
+      if (parent) {
+        const { rows: parents } = await pool.query(
+          'SELECT * FROM nodes WHERE id = $1 AND map_id = $2',
+          [parent, mapId]
+        );
+        if (!parents.length) throw new Error('parent-not-found');
+        if (parents[0].status !== 'committed') throw new Error('parent-not-committed');
+      }
+
+      // Anti-duplication: compare against siblings sharing the same parent.
+      const key = normalizeText(text);
+      const { rows: siblings } = await pool.query(
+        parent
+          ? 'SELECT id, text, status FROM nodes WHERE map_id = $1 AND parent_id = $2'
+          : 'SELECT id, text, status FROM nodes WHERE map_id = $1 AND parent_id IS NULL',
+        parent ? [mapId, parent] : [mapId]
       );
-      if (!parents.length) throw new Error('parent-not-found');
-      if (parents[0].status !== 'committed') throw new Error('parent-not-committed');
+      if (siblings.some((r) => r.status === 'committed' && normalizeText(r.text) === key)) {
+        throw new Error('duplicate-committed');
+      }
+      const dup = siblings.find((r) => r.status === 'proposed' && normalizeText(r.text) === key);
+      if (dup) {
+        const { node, committed } = await this.vote({ nodeId: dup.id, voterId: authorId || 'anon' });
+        return { node, merged: true, committed };
+      }
+
       const id = nanoid(10);
       const { rows } = await pool.query(
         `INSERT INTO nodes (id, map_id, parent_id, text, color, status, author_id)
          VALUES ($1, $2, $3, $4, $5, 'proposed', $6) RETURNING *`,
-        [id, mapId, parentId, (text || '').trim() || 'Untitled', color || '#0ea5e9', authorId || 'anon']
+        [id, mapId, parent, (text || '').trim() || 'Untitled', color || '#0ea5e9', authorId || 'anon']
       );
-      return { ...rowToNode(rows[0]), upvotes: 0 };
+      return { node: { ...rowToNode(rows[0]), upvotes: 0 }, merged: false, committed: false };
     },
 
     async vote({ nodeId, voterId }) {

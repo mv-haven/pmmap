@@ -18,6 +18,8 @@ import ActivityFeed from './components/ActivityFeed.jsx';
 const nodeTypes = { mind: MindNode };
 const COLORS = ['#0ea5e9', '#8b5cf6', '#10b981', '#f59e0b', '#ef4444', '#ec4899'];
 const VOTED_KEY = 'mindmap.voted';
+// Sentinel used as the "parent" when proposing an unconnected (island) node.
+const ROOT_SENTINEL = '__root__';
 
 function loadVoted() {
   try {
@@ -137,15 +139,31 @@ export default function App() {
 
   const submitProposal = useCallback(
     async (text, color) => {
-      const parentId = proposeParent;
+      const raw = proposeParent;
       setProposeParent(null);
       if (!text?.trim()) return;
+      const parentId = raw === ROOT_SENTINEL ? null : raw;
       try {
-        await api.propose(mapIdRef.current, { parentId, text, color });
-        flash('Proposal added. Collect upvotes to merge it.');
+        const result = await api.propose(mapIdRef.current, { parentId, text, color });
+        if (result.merged) {
+          // The dup was folded into a vote on the existing proposal — record it.
+          votedRef.current.add(result.node.id);
+          localStorage.setItem(VOTED_KEY, JSON.stringify([...votedRef.current]));
+          flash(
+            result.committed
+              ? 'Already proposed — your vote pushed it over the line and it committed.'
+              : 'Already proposed — added your upvote to the existing one.'
+          );
+        } else {
+          flash('Proposal added. Collect upvotes to merge it.');
+        }
         await loadMap(mapIdRef.current);
       } catch (e) {
-        flash(`Could not propose: ${e.message}`);
+        const msg =
+          e.message === 'duplicate-committed'
+            ? 'That already exists in the master map.'
+            : `Could not propose: ${e.message}`;
+        flash(msg);
       }
     },
     [proposeParent, loadMap]
@@ -213,6 +231,9 @@ export default function App() {
             </span>
           </div>
           <div className="topbar__right">
+            <button className="primarybtn" onClick={() => setProposeParent(ROOT_SENTINEL)}>
+              + New node
+            </button>
             <button className="ghostbtn" onClick={() => navigator.clipboard?.writeText(window.location.href).then(() => flash('Link copied.'))}>
               Share link
             </button>
@@ -254,21 +275,29 @@ export default function App() {
         </div>
 
         {proposeParent && (
-          <ProposeDialog onCancel={() => setProposeParent(null)} onSubmit={submitProposal} />
+          <ProposeDialog
+            isRoot={proposeParent === ROOT_SENTINEL}
+            onCancel={() => setProposeParent(null)}
+            onSubmit={submitProposal}
+          />
         )}
       </div>
     </MapActions.Provider>
   );
 }
 
-function ProposeDialog({ onCancel, onSubmit }) {
+function ProposeDialog({ isRoot, onCancel, onSubmit }) {
   const [text, setText] = useState('');
   const [color, setColor] = useState(COLORS[0]);
   return (
     <div className="overlay" onClick={onCancel}>
       <div className="dialog" onClick={(e) => e.stopPropagation()}>
-        <h3>Propose a new node</h3>
-        <p className="dialog__hint">It joins as a pending proposal. Once it hits the vote threshold (or an admin commits it), it merges into the master map.</p>
+        <h3>{isRoot ? 'New unconnected node' : 'Propose a new node'}</h3>
+        <p className="dialog__hint">
+          {isRoot
+            ? 'Starts as a free-floating proposal with no parent. It merges into the master map as its own island once it hits the vote threshold (or an admin commits it).'
+            : 'It joins as a pending proposal. Once it hits the vote threshold (or an admin commits it), it merges into the master map.'}
+        </p>
         <input
           autoFocus
           className="dialog__input"

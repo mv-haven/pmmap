@@ -50,15 +50,15 @@ api.get('/maps/:id', async (req, res) => {
 // --- Proposals & votes ---
 api.post('/maps/:id/proposals', async (req, res) => {
   try {
-    const node = await store.createProposal({
+    const result = await store.createProposal({
       mapId: req.params.id,
-      parentId: req.body?.parentId,
+      parentId: req.body?.parentId ?? null,
       text: req.body?.text,
       color: req.body?.color,
       authorId: req.body?.authorId,
     });
     await broadcastMap(req.params.id);
-    res.status(201).json(node);
+    res.status(201).json(result);
   } catch (e) {
     res.status(400).json({ error: e.message });
   }

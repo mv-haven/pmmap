@@ -10,6 +10,12 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = path.join(__dirname, '..', '..', 'data');
 const DATA_FILE = path.join(DATA_DIR, 'store.json');
 
+// Normalized text key for duplicate detection: trim, lowercase, collapse runs
+// of whitespace. Keep this identical to the one in postgres.js.
+export function normalizeText(t) {
+  return (t || '').trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
 export function createMemoryStore({ threshold }) {
   // Shape: maps[id], nodes[id], votes[nodeId] = Set(voterId)
   const state = { maps: {}, nodes: {}, votes: {} };
@@ -99,15 +105,36 @@ export function createMemoryStore({ threshold }) {
     },
 
     async createProposal({ mapId, parentId, text, color, authorId }) {
-      const parent = state.nodes[parentId];
-      if (!parent || parent.mapId !== mapId) throw new Error('parent-not-found');
-      if (parent.status !== 'committed') throw new Error('parent-not-committed');
+      if (!state.maps[mapId]) throw new Error('map-not-found');
+      // parentId null/empty => a new unconnected (root/island) node.
+      const parent = parentId || null;
+      if (parent) {
+        const p = state.nodes[parent];
+        if (!p || p.mapId !== mapId) throw new Error('parent-not-found');
+        if (p.status !== 'committed') throw new Error('parent-not-committed');
+      }
+
+      // Anti-duplication: compare against siblings sharing the same parent.
+      const key = normalizeText(text);
+      const siblings = Object.values(state.nodes).filter(
+        (n) => n.mapId === mapId && (n.parentId || null) === parent
+      );
+      if (siblings.some((n) => n.status === 'committed' && normalizeText(n.text) === key)) {
+        throw new Error('duplicate-committed');
+      }
+      const dup = siblings.find((n) => n.status === 'proposed' && normalizeText(n.text) === key);
+      if (dup) {
+        // Don't create a competing duplicate — fold this into a vote for it.
+        const { node, committed } = await this.vote({ nodeId: dup.id, voterId: authorId || 'anon' });
+        return { node, merged: true, committed };
+      }
+
       const id = nanoid(10);
       const node = {
         id,
         mapId,
-        parentId,
-        text: text.trim() || 'Untitled',
+        parentId: parent,
+        text: (text || '').trim() || 'Untitled',
         color: color || '#0ea5e9',
         status: 'proposed',
         createdAt: new Date().toISOString(),
@@ -119,7 +146,7 @@ export function createMemoryStore({ threshold }) {
       state.nodes[id] = node;
       state.votes[id] = new Set();
       scheduleSave();
-      return shapeNode(node);
+      return { node: shapeNode(node), merged: false, committed: false };
     },
 
     async vote({ nodeId, voterId }) {
