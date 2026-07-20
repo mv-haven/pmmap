@@ -19,10 +19,15 @@ export function layoutTree(nodes) {
 
   const flowNodes = nodes.map((n) => {
     const pos = g.node(n.id);
+    // Stored (x, y) from a manual drag wins; otherwise fall back to the
+    // dagre-computed baseline so new nodes still land tidily.
+    const hasManual = typeof n.x === 'number' && typeof n.y === 'number';
     return {
       id: n.id,
       type: 'mind',
-      position: { x: pos.x - NODE_W / 2, y: pos.y - NODE_H / 2 },
+      position: hasManual
+        ? { x: n.x, y: n.y }
+        : { x: pos.x - NODE_W / 2, y: pos.y - NODE_H / 2 },
       data: n,
     };
   });

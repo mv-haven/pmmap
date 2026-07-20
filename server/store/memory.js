@@ -91,6 +91,8 @@ export function createMemoryStore({ threshold }) {
         createdAt: now,
         committedAt: now,
         authorId: 'system',
+        x: null,
+        y: null,
       };
       scheduleSave();
       return this.getMap(id);
@@ -111,6 +113,8 @@ export function createMemoryStore({ threshold }) {
         createdAt: new Date().toISOString(),
         committedAt: null,
         authorId: authorId || 'anon',
+        x: null,
+        y: null,
       };
       state.nodes[id] = node;
       state.votes[id] = new Set();
@@ -141,6 +145,15 @@ export function createMemoryStore({ threshold }) {
         node.status = 'committed';
         node.committedAt = new Date().toISOString();
       }
+      scheduleSave();
+      return shapeNode(node);
+    },
+
+    async setPosition({ nodeId, x, y }) {
+      const node = state.nodes[nodeId];
+      if (!node) throw new Error('node-not-found');
+      node.x = x;
+      node.y = y;
       scheduleSave();
       return shapeNode(node);
     },

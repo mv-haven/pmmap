@@ -76,6 +76,21 @@ api.post('/nodes/:id/vote', async (req, res) => {
   }
 });
 
+// --- Node position (anyone can rearrange the map) ---
+api.post('/nodes/:id/position', async (req, res) => {
+  try {
+    const { x, y } = req.body || {};
+    if (typeof x !== 'number' || typeof y !== 'number') {
+      return res.status(400).json({ error: 'x-y-required' });
+    }
+    const node = await store.setPosition({ nodeId: req.params.id, x, y });
+    await broadcastMap(node.mapId);
+    res.json(node);
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
 // --- Admin actions (require the admin key) ---
 function requireAdmin(req, res, next) {
   if ((req.get('x-admin-key') || '') !== ADMIN_KEY) {

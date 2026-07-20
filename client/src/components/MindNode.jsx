@@ -21,7 +21,7 @@ function MindNode({ data }) {
       {proposed ? (
         <div className="node__proposal">
           <button
-            className={`vote ${voted ? 'vote--done' : ''}`}
+            className={`vote nodrag ${voted ? 'vote--done' : ''}`}
             onClick={() => actions.onVote(data.id)}
             disabled={voted}
             title={voted ? 'You already upvoted this' : 'Upvote to help it merge'}
@@ -30,17 +30,17 @@ function MindNode({ data }) {
           </button>
           {isAdmin && (
             <span className="node__admin">
-              <button className="mini mini--commit" onClick={() => actions.onCommit(data.id)}>
+              <button className="mini mini--commit nodrag" onClick={() => actions.onCommit(data.id)}>
                 Commit
               </button>
-              <button className="mini mini--dismiss" onClick={() => actions.onDismiss(data.id)}>
+              <button className="mini mini--dismiss nodrag" onClick={() => actions.onDismiss(data.id)}>
                 Dismiss
               </button>
             </span>
           )}
         </div>
       ) : (
-        <button className="node__add" onClick={() => actions.onPropose(data.id)}>
+        <button className="node__add nodrag" onClick={() => actions.onPropose(data.id)}>
           + propose
         </button>
       )}

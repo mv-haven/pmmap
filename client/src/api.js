@@ -49,6 +49,7 @@ export const api = {
       authorId: getVoterId(),
     }),
   vote: (nodeId) => req('POST', `/api/nodes/${nodeId}/vote`, { voterId: getVoterId() }),
+  moveNode: (nodeId, { x, y }) => req('POST', `/api/nodes/${nodeId}/position`, { x, y }),
   adminCommit: (nodeId) => req('POST', `/api/nodes/${nodeId}/commit`),
   adminDismiss: (nodeId) => req('POST', `/api/nodes/${nodeId}/dismiss`),
   // Validate an admin key against the server before persisting it.

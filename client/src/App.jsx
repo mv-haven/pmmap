@@ -5,6 +5,7 @@ import {
   Controls,
   MiniMap,
   ReactFlowProvider,
+  useNodesState,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 
@@ -34,8 +35,13 @@ export default function App() {
   const [banner, setBanner] = useState(null);
   const votedRef = useRef(loadVoted());
   const wsRef = useRef(null);
+  const draggingRef = useRef(false);
 
   const mapIdRef = useRef(null);
+
+  // React Flow owns node positions locally so drags feel instant; the map is
+  // still the source of truth and re-seeds these whenever it changes.
+  const [rfNodes, setRfNodes, onNodesChange] = useNodesState([]);
 
   const loadMap = useCallback(async (id) => {
     const fresh = await api.getMap(id);
@@ -163,10 +169,27 @@ export default function App() {
     flash('Admin locked.');
   };
 
-  const { flowNodes, flowEdges } = useMemo(
-    () => (map ? layoutTree(map.nodes) : { flowNodes: [], flowEdges: [] }),
-    [map]
-  );
+  const flowEdges = useMemo(() => (map ? layoutTree(map.nodes).flowEdges : []), [map]);
+
+  // Re-seed positions from the map on every change — except mid-drag, so an
+  // incoming live update never yanks the node out from under the cursor.
+  useEffect(() => {
+    if (!map || draggingRef.current) return;
+    setRfNodes(layoutTree(map.nodes).flowNodes);
+  }, [map, setRfNodes]);
+
+  const onNodeDragStart = useCallback(() => {
+    draggingRef.current = true;
+  }, []);
+
+  const onNodeDragStop = useCallback(async (_evt, node) => {
+    draggingRef.current = false;
+    try {
+      await api.moveNode(node.id, { x: node.position.x, y: node.position.y });
+    } catch (e) {
+      flash(`Could not move node: ${e.message}`);
+    }
+  }, []);
 
   const actions = useMemo(
     () => ({ threshold, isAdmin, hasVoted, onVote, onPropose: setProposeParent, onCommit, onDismiss }),
@@ -211,8 +234,11 @@ export default function App() {
           <div className="canvas">
             <ReactFlowProvider>
               <ReactFlow
-                nodes={flowNodes}
+                nodes={rfNodes}
                 edges={flowEdges}
+                onNodesChange={onNodesChange}
+                onNodeDragStart={onNodeDragStart}
+                onNodeDragStop={onNodeDragStop}
                 nodeTypes={nodeTypes}
                 fitView
                 proOptions={{ hideAttribution: true }}

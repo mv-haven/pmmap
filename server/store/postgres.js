@@ -32,6 +32,8 @@ export function createPostgresStore({ threshold, connectionString }) {
       createdAt: r.created_at,
       committedAt: r.committed_at,
       authorId: r.author_id,
+      x: r.x ?? null,
+      y: r.y ?? null,
       upvotes: r.upvotes ?? 0,
     };
   }
@@ -57,6 +59,8 @@ export function createPostgresStore({ threshold, connectionString }) {
           created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
           committed_at TIMESTAMPTZ
         );
+        ALTER TABLE nodes ADD COLUMN IF NOT EXISTS x DOUBLE PRECISION;
+        ALTER TABLE nodes ADD COLUMN IF NOT EXISTS y DOUBLE PRECISION;
         CREATE TABLE IF NOT EXISTS votes (
           node_id TEXT NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
           voter_id TEXT NOT NULL,
@@ -170,6 +174,15 @@ export function createPostgresStore({ threshold, connectionString }) {
         [nodeId]
       );
       return { ...rowToNode(rows[0]), upvotes: c[0].cnt };
+    },
+
+    async setPosition({ nodeId, x, y }) {
+      const { rows } = await pool.query(
+        'UPDATE nodes SET x = $2, y = $3 WHERE id = $1 RETURNING *',
+        [nodeId, x, y]
+      );
+      if (!rows.length) throw new Error('node-not-found');
+      return rowToNode(rows[0]);
     },
 
     async dismiss({ nodeId }) {
