@@ -33,9 +33,19 @@ function detectCycle(nodesArr, linksArr) {
 }
 
 export function createPostgresStore({ threshold, connectionString }) {
+  // SSL only for external hosts (a dotted domain like *.render.com). Render's
+  // internal hostnames (dpg-…) and localhost connect without SSL.
+  const useSsl = (() => {
+    try {
+      const host = new URL(connectionString).hostname;
+      return host.includes('.') && !host.includes('localhost');
+    } catch {
+      return false;
+    }
+  })();
   const pool = new pg.Pool({
     connectionString,
-    ssl: connectionString.includes('localhost') ? false : { rejectUnauthorized: false },
+    ssl: useSsl ? { rejectUnauthorized: false } : false,
   });
 
   async function shapeMapNodes(mapId) {
