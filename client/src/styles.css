@@ -36,6 +36,12 @@ body { background: var(--bg); color: var(--ink); }
 .ghostbtn--danger:hover { background: #fef2f2; }
 .primarybtn { background: var(--accent); border-color: var(--accent); color: #fff; }
 .primarybtn:hover { filter: brightness(1.05); }
+.dangerbtn {
+  font: inherit; font-size: 13px; font-weight: 600; cursor: pointer;
+  border-radius: 8px; padding: 7px 12px; border: 1px solid #ef4444;
+  background: #ef4444; color: #fff;
+}
+.dangerbtn:hover { filter: brightness(1.05); }
 
 .banner {
   position: absolute; top: 64px; left: 50%; transform: translateX(-50%);

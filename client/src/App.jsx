@@ -36,6 +36,7 @@ export default function App() {
   const [proposeParent, setProposeParent] = useState(null);
   const [reorg, setReorg] = useState(null); // { ids: [...], label } of nodes being moved
   const [selectedIds, setSelectedIds] = useState([]);
+  const [confirmDelete, setConfirmDelete] = useState(null); // { ids, label, isBulk }
   const [banner, setBanner] = useState(null);
   const votedRef = useRef(loadVoted());
   const wsRef = useRef(null);
@@ -139,23 +140,29 @@ export default function App() {
     [loadMap]
   );
 
-  const onDelete = useCallback(
-    async (nodeId) => {
-      try {
-        await api.adminDelete(nodeId);
-        flash('Node and its branch deleted.');
-        await loadMap(mapIdRef.current);
-      } catch (e) {
-        flash(`Delete failed: ${e.message}`);
-      }
-    },
-    [loadMap]
-  );
-
   const clearSelection = useCallback(() => {
     setRfNodes((ns) => ns.map((n) => (n.selected ? { ...n, selected: false } : n)));
     setSelectedIds([]);
   }, [setRfNodes]);
+
+  // Delete is destructive and cascades, so it always routes through a confirm.
+  const onDelete = useCallback((nodeId, text) => {
+    setConfirmDelete({ ids: [nodeId], label: `“${text}”`, isBulk: false });
+  }, []);
+
+  const performDelete = useCallback(async () => {
+    const target = confirmDelete;
+    setConfirmDelete(null);
+    if (!target) return;
+    try {
+      const { deleted } = await api.bulkDelete(target.ids);
+      flash(`Deleted ${deleted} node${deleted === 1 ? '' : 's'} and everything under.`);
+      if (target.isBulk) clearSelection();
+      await loadMap(mapIdRef.current);
+    } catch (e) {
+      flash(`Delete failed: ${e.message}`);
+    }
+  }, [confirmDelete, loadMap, clearSelection]);
 
   const onSelectionChange = useCallback(({ nodes }) => {
     setSelectedIds(nodes.map((n) => n.id));
@@ -196,16 +203,9 @@ export default function App() {
     setReorg({ ids: selectedIds, label: `${selectedIds.length} nodes` });
   }, [selectedIds]);
 
-  const onBulkDelete = useCallback(async () => {
-    try {
-      const { deleted } = await api.bulkDelete(selectedIds);
-      flash(`Deleted ${deleted} node${deleted === 1 ? '' : 's'} and their branches.`);
-      clearSelection();
-      await loadMap(mapIdRef.current);
-    } catch (e) {
-      flash(`Delete failed: ${e.message}`);
-    }
-  }, [selectedIds, loadMap, clearSelection]);
+  const onBulkDelete = useCallback(() => {
+    setConfirmDelete({ ids: selectedIds, label: `${selectedIds.length} nodes`, isBulk: true });
+  }, [selectedIds]);
 
   // Esc cancels an in-progress move.
   useEffect(() => {
@@ -313,6 +313,27 @@ export default function App() {
     return { committed, proposed };
   }, [map]);
 
+  // How many nodes a pending delete would actually remove: each target plus
+  // its whole subtree, deduped (a selected parent + child must not double-count).
+  const deleteImpact = useMemo(() => {
+    if (!confirmDelete || !map) return 0;
+    const children = new Map();
+    for (const n of map.nodes) {
+      if (!n.parentId) continue;
+      if (!children.has(n.parentId)) children.set(n.parentId, []);
+      children.get(n.parentId).push(n.id);
+    }
+    const seen = new Set();
+    const stack = [...confirmDelete.ids];
+    while (stack.length) {
+      const cur = stack.pop();
+      if (seen.has(cur)) continue;
+      seen.add(cur);
+      for (const c of children.get(cur) || []) stack.push(c);
+    }
+    return seen.size;
+  }, [confirmDelete, map]);
+
   return (
     <MapActions.Provider value={actions}>
       <div className="app">
@@ -404,8 +425,58 @@ export default function App() {
             onSubmit={submitProposal}
           />
         )}
+
+        {confirmDelete && (
+          <ConfirmDialog
+            title={
+              confirmDelete.isBulk
+                ? `Delete ${confirmDelete.ids.length} selected nodes?`
+                : `Delete ${confirmDelete.label}?`
+            }
+            message={
+              deleteImpact > confirmDelete.ids.length
+                ? `This removes ${deleteImpact} nodes in total — the ${
+                    confirmDelete.isBulk ? 'selection' : 'node'
+                  } plus everything nested underneath. This can't be undone.`
+                : `This removes ${deleteImpact} node${
+                    deleteImpact === 1 ? '' : 's'
+                  }. This can't be undone.`
+            }
+            confirmLabel="Delete"
+            onCancel={() => setConfirmDelete(null)}
+            onConfirm={performDelete}
+          />
+        )}
       </div>
     </MapActions.Provider>
+  );
+}
+
+function ConfirmDialog({ title, message, confirmLabel, onCancel, onConfirm }) {
+  // Esc cancels. Deliberately no Enter-to-confirm — too easy to fire by accident
+  // on a destructive action.
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key === 'Escape') onCancel();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onCancel]);
+  return (
+    <div className="overlay" onClick={onCancel}>
+      <div className="dialog" onClick={(e) => e.stopPropagation()}>
+        <h3>{title}</h3>
+        <p className="dialog__hint">{message}</p>
+        <div className="dialog__actions">
+          <button className="ghostbtn" onClick={onCancel}>
+            Cancel
+          </button>
+          <button className="dangerbtn" onClick={onConfirm}>
+            {confirmLabel}
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 

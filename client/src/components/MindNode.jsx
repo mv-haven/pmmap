@@ -56,7 +56,7 @@ function MindNode({ data }) {
               </button>
               <button
                 className="mini mini--dismiss nodrag"
-                onClick={() => actions.onDelete(data.id)}
+                onClick={() => actions.onDelete(data.id, data.text)}
               >
                 Delete
               </button>
