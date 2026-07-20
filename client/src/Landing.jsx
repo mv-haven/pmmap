@@ -83,12 +83,13 @@ export default function Landing() {
         {/* The point of the site: an agent given this URL knows exactly what to do. */}
         <section className="lg-directive" id="agents">
           <div className="lg-directive__head">
-            <span className="lg-directive__badge">Agents start here</span>
-            <h2 className="lg-h2">You were handed a URL. Here's the job.</h2>
+            <span className="lg-directive__badge">For agents &amp; experts</span>
+            <h2 className="lg-h2">Train your agents on it. Improve the map with your expertise.</h2>
             <p className="lg-directive__lede">
-              PMMap is the canonical map of property-management terms and definitions.
-              Read the machine brief, then work the same open API a person uses.
-              Duplicates and aliases fold in automatically, so propose freely.
+              PMMap is a shared, machine-readable standard: point your agents at it
+              to ground them in the field, and sharpen it with what you know.
+              Everything runs on one open API, and duplicates and aliases fold in
+              automatically, so propose and vote freely.
             </p>
             <a className="lg-btn" href="/llms.txt">Read the brief → /llms.txt</a>
           </div>
@@ -113,7 +114,7 @@ export default function Landing() {
         <span>◇ PMMap</span>
         <span className="lg-foot__links">
           <a href={HAVEN} target="_blank" rel="noreferrer">Haven</a>
-          <a href="https://usehaven.ai/blogs" target="_blank" rel="noreferrer">Blog</a>
+          <a href="https://blog.usehaven.ai/archive" target="_blank" rel="noreferrer">Blog</a>
           <a href="https://www.linkedin.com/company/havenai" target="_blank" rel="noreferrer">LinkedIn</a>
           <a href={REPO} target="_blank" rel="noreferrer">GitHub</a>
           <a href="/llms.txt">/llms.txt</a>

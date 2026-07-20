@@ -71,7 +71,7 @@ export default function Why() {
         <span>◇ PMMap</span>
         <span className="lg-foot__links">
           <a href={HAVEN} target="_blank" rel="noreferrer">Haven</a>
-          <a href="https://usehaven.ai/blogs" target="_blank" rel="noreferrer">Blog</a>
+          <a href="https://blog.usehaven.ai/archive" target="_blank" rel="noreferrer">Blog</a>
           <a href="https://github.com/mv-haven/pmmap" target="_blank" rel="noreferrer">GitHub</a>
           <a href="/llms.txt">/llms.txt</a>
         </span>
