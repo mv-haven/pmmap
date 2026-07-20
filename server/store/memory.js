@@ -18,8 +18,9 @@ export function normalizeText(t) {
 }
 
 export function createMemoryStore({ threshold }) {
-  // Shape: maps[id], nodes[id], votes[nodeId] = Set(voterId)
-  const state = { maps: {}, nodes: {}, votes: {} };
+  // Shape: maps[id], nodes[id], votes[nodeId] = Set(voterId),
+  // links = [{parentId, childId}] (extra parent edges beyond the primary tree).
+  const state = { maps: {}, nodes: {}, votes: {}, links: [] };
   let saveTimer = null;
 
   async function load() {
@@ -28,6 +29,7 @@ export function createMemoryStore({ threshold }) {
       const parsed = JSON.parse(raw);
       state.maps = parsed.maps || {};
       state.nodes = parsed.nodes || {};
+      state.links = parsed.links || [];
       state.votes = {};
       for (const [nodeId, voters] of Object.entries(parsed.votes || {})) {
         state.votes[nodeId] = new Set(voters);
@@ -43,6 +45,7 @@ export function createMemoryStore({ threshold }) {
       const serialisable = {
         maps: state.maps,
         nodes: state.nodes,
+        links: state.links,
         votes: Object.fromEntries(
           Object.entries(state.votes).map(([k, set]) => [k, [...set]])
         ),
@@ -58,6 +61,34 @@ export function createMemoryStore({ threshold }) {
 
   function shapeNode(node) {
     return { ...node, upvotes: countVotes(node.id) };
+  }
+
+  // --- Combined-graph helpers (primary parentId edges + extra links) ---
+  function parentsOf(id) {
+    const primary = state.nodes[id]?.parentId ? [state.nodes[id].parentId] : [];
+    const extra = state.links.filter((l) => l.childId === id).map((l) => l.parentId);
+    return [...primary, ...extra];
+  }
+  function childrenOf(id) {
+    const primary = Object.values(state.nodes)
+      .filter((n) => n.parentId === id)
+      .map((n) => n.id);
+    const extra = state.links.filter((l) => l.parentId === id).map((l) => l.childId);
+    return [...primary, ...extra];
+  }
+  function descendantsOf(id) {
+    const seen = new Set();
+    const stack = [...childrenOf(id)];
+    while (stack.length) {
+      const cur = stack.pop();
+      if (seen.has(cur)) continue;
+      seen.add(cur);
+      for (const c of childrenOf(cur)) stack.push(c);
+    }
+    return seen;
+  }
+  function linkExists(parentId, childId) {
+    return state.links.some((l) => l.parentId === parentId && l.childId === childId);
   }
 
   return {
@@ -76,10 +107,16 @@ export function createMemoryStore({ threshold }) {
     async getMap(mapId) {
       const map = state.maps[mapId];
       if (!map) return null;
+      const nodeIds = new Set(
+        Object.values(state.nodes).filter((n) => n.mapId === mapId).map((n) => n.id)
+      );
       const nodes = Object.values(state.nodes)
         .filter((n) => n.mapId === mapId)
         .map(shapeNode);
-      return { ...map, nodes };
+      const links = state.links.filter(
+        (l) => nodeIds.has(l.parentId) && nodeIds.has(l.childId)
+      );
+      return { ...map, nodes, links };
     },
 
     async createMap({ title }) {
@@ -157,26 +194,83 @@ export function createMemoryStore({ threshold }) {
       return { node: shapeNode(node), merged: false, committed: Boolean(asAdmin) };
     },
 
+    async addParentLink({ childId, parentId }) {
+      const child = state.nodes[childId];
+      const parent = state.nodes[parentId];
+      if (!child || !parent) throw new Error('node-not-found');
+      if (child.mapId !== parent.mapId) throw new Error('different-maps');
+      if (childId === parentId) throw new Error('cannot-parent-to-self');
+      if (child.status !== 'committed' || parent.status !== 'committed') {
+        throw new Error('both-must-be-committed');
+      }
+      if (child.parentId === parentId || linkExists(parentId, childId)) {
+        throw new Error('already-a-parent');
+      }
+      // Cycle guard over the combined graph: parent must not already be a
+      // descendant of child (that would make the new edge close a loop).
+      if (descendantsOf(childId).has(parentId)) throw new Error('would-create-cycle');
+      state.links.push({ parentId, childId });
+      scheduleSave();
+      return { mapId: child.mapId };
+    },
+
+    async removeParentLink({ childId, parentId }) {
+      const before = state.links.length;
+      state.links = state.links.filter(
+        (l) => !(l.parentId === parentId && l.childId === childId)
+      );
+      if (state.links.length === before) throw new Error('link-not-found');
+      const mapId = state.nodes[childId]?.mapId;
+      scheduleSave();
+      return { mapId };
+    },
+
     async deleteNode({ nodeId }) {
       const node = state.nodes[nodeId];
       if (!node) throw new Error('node-not-found');
       const mapId = node.mapId;
-      // Cascade: remove the node and its whole subtree.
-      const toDelete = [];
-      const stack = [nodeId];
-      while (stack.length) {
-        const cur = stack.pop();
-        toDelete.push(cur);
+
+      // DAG cascade: start with the target, then absorb any node whose parents
+      // are ALL inside the delete set (i.e. it loses every parent). A child with
+      // a surviving parent elsewhere is spared.
+      const deleteSet = new Set([nodeId]);
+      let changed = true;
+      while (changed) {
+        changed = false;
         for (const n of Object.values(state.nodes)) {
-          if (n.parentId === cur) stack.push(n.id);
+          if (deleteSet.has(n.id)) continue;
+          const parents = parentsOf(n.id);
+          if (parents.length > 0 && parents.every((p) => deleteSet.has(p))) {
+            deleteSet.add(n.id);
+            changed = true;
+          }
         }
       }
-      for (const id of toDelete) {
+
+      // Re-point survivors whose PRIMARY parent is being deleted onto one of
+      // their surviving (link) parents, promoting that link to primary.
+      for (const n of Object.values(state.nodes)) {
+        if (deleteSet.has(n.id)) continue;
+        if (n.parentId && deleteSet.has(n.parentId)) {
+          const survivor = parentsOf(n.id).find((p) => !deleteSet.has(p));
+          n.parentId = survivor || null;
+          if (survivor) {
+            state.links = state.links.filter(
+              (l) => !(l.parentId === survivor && l.childId === n.id)
+            );
+          }
+        }
+      }
+
+      for (const id of deleteSet) {
         delete state.nodes[id];
         delete state.votes[id];
       }
+      state.links = state.links.filter(
+        (l) => !deleteSet.has(l.parentId) && !deleteSet.has(l.childId)
+      );
       scheduleSave();
-      return { mapId, deleted: toDelete.length };
+      return { mapId, deleted: deleteSet.size };
     },
 
     async reparent({ nodeId, newParentId }) {
@@ -188,19 +282,8 @@ export function createMemoryStore({ threshold }) {
         const p = state.nodes[target];
         if (!p || p.mapId !== node.mapId) throw new Error('parent-not-found');
         if (p.status !== 'committed') throw new Error('parent-not-committed');
-        // Cycle guard: the new parent must not be a descendant of the node.
-        const descendants = new Set();
-        const stack = [nodeId];
-        while (stack.length) {
-          const cur = stack.pop();
-          for (const n of Object.values(state.nodes)) {
-            if (n.parentId === cur && !descendants.has(n.id)) {
-              descendants.add(n.id);
-              stack.push(n.id);
-            }
-          }
-        }
-        if (descendants.has(target)) throw new Error('would-create-cycle');
+        // Cycle guard over the combined graph.
+        if (descendantsOf(nodeId).has(target)) throw new Error('would-create-cycle');
       }
       node.parentId = target;
       scheduleSave();

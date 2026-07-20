@@ -58,6 +58,10 @@ export const api = {
   bulkDelete: (ids) => req('POST', '/api/nodes/bulk-delete', { ids }),
   bulkReparent: (ids, newParentId) =>
     req('POST', '/api/nodes/bulk-reparent', { ids, newParentId }),
+  addParent: (childId, parentId) =>
+    req('POST', `/api/nodes/${childId}/parents`, { parentId }),
+  removeParent: (childId, parentId) =>
+    req('POST', `/api/nodes/${childId}/parents/remove`, { parentId }),
   // Validate an admin key against the server before persisting it.
   async unlockAdmin(key) {
     const res = await fetch('/api/admin/check', { headers: { 'x-admin-key': key } });

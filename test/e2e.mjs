@@ -175,6 +175,40 @@ test('delete cascades a whole subtree', async () => {
   assert.equal(ids.has(c.id), false);
 });
 
+test('a node can have multiple parents (add + reject cycle)', async () => {
+  const { mapId, rootId } = await freshMap();
+  const t1 = (await post(`/api/maps/${mapId}/proposals`, { parentId: rootId, text: 'T1' }, true)).body.node;
+  const t3 = (await post(`/api/maps/${mapId}/proposals`, { parentId: rootId, text: 'T3' }, true)).body.node;
+  const t2 = (await post(`/api/maps/${mapId}/proposals`, { parentId: t1.id, text: 'T2' }, true)).body.node;
+  // Give T2 a second parent, T3.
+  const add = await post(`/api/nodes/${t2.id}/parents`, { parentId: t3.id }, true);
+  assert.equal(add.status, 200);
+  const full = await get(`/api/maps/${mapId}`);
+  assert.ok(full.body.links.some((l) => l.parentId === t3.id && l.childId === t2.id));
+  // Cycle: T1 cannot become a child of T2 (T2 is already T1's descendant).
+  const cyc = await post(`/api/nodes/${t1.id}/parents`, { parentId: t2.id }, true);
+  assert.equal(cyc.status, 400);
+  assert.equal(cyc.body.error, 'would-create-cycle');
+});
+
+test('deleting one parent spares a child that has another parent', async () => {
+  const { mapId, rootId } = await freshMap();
+  const t1 = (await post(`/api/maps/${mapId}/proposals`, { parentId: rootId, text: 'P1' }, true)).body.node;
+  const t3 = (await post(`/api/maps/${mapId}/proposals`, { parentId: rootId, text: 'P3' }, true)).body.node;
+  const t2 = (await post(`/api/maps/${mapId}/proposals`, { parentId: t1.id, text: 'Shared' }, true)).body.node;
+  await post(`/api/nodes/${t2.id}/parents`, { parentId: t3.id }, true);
+  // Delete T1 (T2's PRIMARY parent). T2 survives via T3 and is repointed.
+  await post(`/api/nodes/${t1.id}/delete`, {}, true);
+  const afterOne = await get(`/api/maps/${mapId}`);
+  const survivor = afterOne.body.nodes.find((n) => n.id === t2.id);
+  assert.ok(survivor, 'shared child survived deleting one parent');
+  assert.equal(survivor.parentId, t3.id, 'primary parent repointed to the survivor');
+  // Now delete its last parent T3 → the child is removed.
+  await post(`/api/nodes/${t3.id}/delete`, {}, true);
+  const afterAll = await get(`/api/maps/${mapId}`);
+  assert.equal(afterAll.body.nodes.find((n) => n.id === t2.id), undefined);
+});
+
 test('bulk reparent and bulk delete are tolerant', async () => {
   const { mapId, rootId } = await freshMap();
   const a = (await post(`/api/maps/${mapId}/proposals`, { parentId: rootId, text: 'BA' }, true)).body.node;

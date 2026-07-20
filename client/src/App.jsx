@@ -269,14 +269,54 @@ export default function App() {
     flash('Admin locked.');
   };
 
-  const flowEdges = useMemo(() => (map ? layoutTree(map.nodes).flowEdges : []), [map]);
+  const flowEdges = useMemo(
+    () => (map ? layoutTree(map.nodes, map.links).flowEdges : []),
+    [map]
+  );
 
   // Re-seed positions from the map on every change — except mid-drag, so an
   // incoming live update never yanks the node out from under the cursor.
   useEffect(() => {
     if (!map || draggingRef.current) return;
-    setRfNodes(layoutTree(map.nodes).flowNodes);
+    setRfNodes(layoutTree(map.nodes, map.links).flowNodes);
   }, [map, setRfNodes]);
+
+  // Dragging from one node's handle to another (admin) adds an extra parent
+  // edge: source becomes an additional parent of target.
+  const onConnect = useCallback(
+    async ({ source, target }) => {
+      if (!source || !target) return;
+      try {
+        await api.addParent(target, source);
+        flash('Added a parent connection.');
+        await loadMap(mapIdRef.current);
+      } catch (e) {
+        const msg = {
+          'would-create-cycle': "Can't connect — that would create a loop.",
+          'already-a-parent': 'Those nodes are already connected.',
+          'both-must-be-committed': 'Both nodes must be committed to connect.',
+          'cannot-parent-to-self': "Can't connect a node to itself.",
+        };
+        flash(msg[e.message] || `Could not connect: ${e.message}`);
+      }
+    },
+    [loadMap]
+  );
+
+  // Clicking an extra (purple) link edge removes that parent connection.
+  const onEdgeClick = useCallback(
+    async (_evt, edge) => {
+      if (!isAdmin || edge.data?.kind !== 'link') return;
+      try {
+        await api.removeParent(edge.data.childId, edge.data.parentId);
+        flash('Removed the parent connection.');
+        await loadMap(mapIdRef.current);
+      } catch (e) {
+        flash(`Could not remove: ${e.message}`);
+      }
+    },
+    [isAdmin, loadMap]
+  );
 
   const onNodeDragStart = useCallback(() => {
     draggingRef.current = true;
@@ -313,25 +353,30 @@ export default function App() {
     return { committed, proposed };
   }, [map]);
 
-  // How many nodes a pending delete would actually remove: each target plus
-  // its whole subtree, deduped (a selected parent + child must not double-count).
+  // How many nodes a pending delete would actually remove — DAG-aware, mirroring
+  // the server: a child is only removed when ALL its parents (primary + extra
+  // links) are in the delete set. A shared child with another parent survives.
   const deleteImpact = useMemo(() => {
     if (!confirmDelete || !map) return 0;
-    const children = new Map();
-    for (const n of map.nodes) {
-      if (!n.parentId) continue;
-      if (!children.has(n.parentId)) children.set(n.parentId, []);
-      children.get(n.parentId).push(n.id);
+    const parentsOf = (id) => {
+      const prim = map.nodes.find((n) => n.id === id)?.parentId;
+      const extra = (map.links || []).filter((l) => l.childId === id).map((l) => l.parentId);
+      return [...(prim ? [prim] : []), ...extra];
+    };
+    const del = new Set(confirmDelete.ids);
+    let changed = true;
+    while (changed) {
+      changed = false;
+      for (const n of map.nodes) {
+        if (del.has(n.id)) continue;
+        const ps = parentsOf(n.id);
+        if (ps.length > 0 && ps.every((p) => del.has(p))) {
+          del.add(n.id);
+          changed = true;
+        }
+      }
     }
-    const seen = new Set();
-    const stack = [...confirmDelete.ids];
-    while (stack.length) {
-      const cur = stack.pop();
-      if (seen.has(cur)) continue;
-      seen.add(cur);
-      for (const c of children.get(cur) || []) stack.push(c);
-    }
-    return seen.size;
+    return del.size;
   }, [confirmDelete, map]);
 
   return (
@@ -384,6 +429,9 @@ export default function App() {
                 onNodeClick={reorg ? (_e, node) => applyReparent(node.id) : undefined}
                 onPaneClick={reorg ? () => applyReparent(null) : undefined}
                 onSelectionChange={onSelectionChange}
+                onConnect={isAdmin ? onConnect : undefined}
+                onEdgeClick={onEdgeClick}
+                nodesConnectable={isAdmin}
                 panOnDrag
                 selectionOnDrag={false}
                 selectionKeyCode="Shift"

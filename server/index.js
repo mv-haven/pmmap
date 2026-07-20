@@ -148,6 +148,34 @@ api.post('/nodes/:id/reparent', requireAdmin, async (req, res) => {
   }
 });
 
+// Add an extra parent edge to a node (multi-parent DAG). Admin only.
+// :id is the CHILD; body.parentId is the additional parent.
+api.post('/nodes/:id/parents', requireAdmin, async (req, res) => {
+  try {
+    const { mapId } = await store.addParentLink({
+      childId: req.params.id,
+      parentId: req.body?.parentId,
+    });
+    await broadcastMap(mapId);
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+api.post('/nodes/:id/parents/remove', requireAdmin, async (req, res) => {
+  try {
+    const { mapId } = await store.removeParentLink({
+      childId: req.params.id,
+      parentId: req.body?.parentId,
+    });
+    await broadcastMap(mapId);
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
 // --- Bulk admin actions (one broadcast for the whole batch) ---
 // Tolerant by design: a node already removed by a cascade, or a reparent that
 // fails the cycle guard, is skipped rather than aborting the batch.

@@ -6,15 +6,21 @@ import Dagre from '@dagrejs/dagre';
 const NODE_W = 190;
 const NODE_H = 64;
 
-export function layoutTree(nodes) {
-  const g = new Dagre.graphlib.Graph().setDefaultEdgeLabel(() => ({}));
+export function layoutTree(nodes, links = []) {
+  // Multigraph so a distinctly-named extra-parent edge can coexist alongside
+  // the primary tree edges without collision.
+  const g = new Dagre.graphlib.Graph({ multigraph: true }).setDefaultEdgeLabel(() => ({}));
   g.setGraph({ rankdir: 'LR', nodesep: 24, ranksep: 90 });
 
   const byId = new Map(nodes.map((n) => [n.id, n]));
+  const validLinks = links.filter((l) => byId.has(l.parentId) && byId.has(l.childId));
   for (const n of nodes) g.setNode(n.id, { width: NODE_W, height: NODE_H });
   for (const n of nodes) {
     if (n.parentId && byId.has(n.parentId)) g.setEdge(n.parentId, n.id);
   }
+  // Extra parent links participate in layout so a shared child sits sensibly
+  // relative to all its parents.
+  for (const l of validLinks) g.setEdge(l.parentId, l.childId, {}, `link:${l.parentId}:${l.childId}`);
   Dagre.layout(g);
 
   const flowNodes = nodes.map((n) => {
@@ -32,13 +38,14 @@ export function layoutTree(nodes) {
     };
   });
 
-  const flowEdges = nodes
+  const primaryEdges = nodes
     .filter((n) => n.parentId && byId.has(n.parentId))
     .map((n) => ({
       id: `${n.parentId}->${n.id}`,
       source: n.parentId,
       target: n.id,
       animated: n.status === 'proposed',
+      data: { kind: 'primary' },
       style: {
         stroke: n.status === 'proposed' ? '#94a3b8' : '#cbd5e1',
         strokeDasharray: n.status === 'proposed' ? '6 4' : undefined,
@@ -46,5 +53,15 @@ export function layoutTree(nodes) {
       },
     }));
 
-  return { flowNodes, flowEdges };
+  // Extra parent edges: distinct purple so they read as added connections,
+  // and removable (admin clicks them).
+  const linkEdges = validLinks.map((l) => ({
+    id: `link:${l.parentId}->${l.childId}`,
+    source: l.parentId,
+    target: l.childId,
+    data: { kind: 'link', parentId: l.parentId, childId: l.childId },
+    style: { stroke: '#8b5cf6', strokeWidth: 2 },
+  }));
+
+  return { flowNodes, flowEdges: [...primaryEdges, ...linkEdges] };
 }

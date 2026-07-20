@@ -71,6 +71,11 @@ export function createPostgresStore({ threshold, connectionString }) {
           voter_id TEXT NOT NULL,
           PRIMARY KEY (node_id, voter_id)
         );
+        CREATE TABLE IF NOT EXISTS links (
+          parent_id TEXT NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
+          child_id TEXT NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
+          PRIMARY KEY (parent_id, child_id)
+        );
       `);
     },
 
@@ -83,11 +88,18 @@ export function createPostgresStore({ threshold, connectionString }) {
       const { rows } = await pool.query('SELECT * FROM maps WHERE id = $1', [mapId]);
       if (!rows.length) return null;
       const m = rows[0];
+      const { rows: linkRows } = await pool.query(
+        `SELECT l.parent_id, l.child_id FROM links l
+           JOIN nodes n ON n.id = l.child_id
+          WHERE n.map_id = $1`,
+        [mapId]
+      );
       return {
         id: m.id,
         title: m.title,
         createdAt: m.created_at,
         nodes: await shapeMapNodes(mapId),
+        links: linkRows.map((l) => ({ parentId: l.parent_id, childId: l.child_id })),
       };
     },
 
@@ -151,12 +163,110 @@ export function createPostgresStore({ threshold, connectionString }) {
       return { node: { ...rowToNode(rows[0]), upvotes: 0 }, merged: false, committed: Boolean(asAdmin) };
     },
 
+    async addParentLink({ childId, parentId }) {
+      const { rows } = await pool.query(
+        'SELECT id, map_id, status FROM nodes WHERE id = ANY($1)',
+        [[childId, parentId]]
+      );
+      const child = rows.find((r) => r.id === childId);
+      const parent = rows.find((r) => r.id === parentId);
+      if (!child || !parent) throw new Error('node-not-found');
+      if (child.map_id !== parent.map_id) throw new Error('different-maps');
+      if (childId === parentId) throw new Error('cannot-parent-to-self');
+      if (child.status !== 'committed' || parent.status !== 'committed') {
+        throw new Error('both-must-be-committed');
+      }
+      // Already a parent (primary or an existing link)?
+      const { rows: existing } = await pool.query(
+        `SELECT 1 FROM nodes WHERE id = $1 AND parent_id = $2
+         UNION ALL SELECT 1 FROM links WHERE child_id = $1 AND parent_id = $2`,
+        [childId, parentId]
+      );
+      if (existing.length) throw new Error('already-a-parent');
+      // Cycle guard over the combined graph (primary edges + links).
+      const { rows: cyc } = await pool.query(
+        `WITH RECURSIVE edges AS (
+           SELECT parent_id AS p, id AS c FROM nodes WHERE parent_id IS NOT NULL
+           UNION ALL SELECT parent_id AS p, child_id AS c FROM links
+         ),
+         d AS (
+           SELECT c FROM edges WHERE p = $1
+           UNION SELECT e.c FROM edges e JOIN d ON e.p = d.c
+         )
+         SELECT 1 FROM d WHERE c = $2 LIMIT 1`,
+        [childId, parentId]
+      );
+      if (cyc.length) throw new Error('would-create-cycle');
+      await pool.query(
+        'INSERT INTO links (parent_id, child_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
+        [parentId, childId]
+      );
+      return { mapId: child.map_id };
+    },
+
+    async removeParentLink({ childId, parentId }) {
+      const { rows } = await pool.query(
+        'DELETE FROM links WHERE parent_id = $1 AND child_id = $2 RETURNING child_id',
+        [parentId, childId]
+      );
+      if (!rows.length) throw new Error('link-not-found');
+      const { rows: n } = await pool.query('SELECT map_id FROM nodes WHERE id = $1', [childId]);
+      return { mapId: n[0]?.map_id };
+    },
+
     async deleteNode({ nodeId }) {
-      const { rows } = await pool.query('SELECT map_id FROM nodes WHERE id = $1', [nodeId]);
-      if (!rows.length) throw new Error('node-not-found');
-      // FK ON DELETE CASCADE removes the subtree and its votes.
-      await pool.query('DELETE FROM nodes WHERE id = $1', [nodeId]);
-      return { mapId: rows[0].map_id };
+      const { rows: target } = await pool.query('SELECT map_id FROM nodes WHERE id = $1', [nodeId]);
+      if (!target.length) throw new Error('node-not-found');
+      const mapId = target[0].map_id;
+      // Load the whole map graph and compute the DAG delete set in JS (mirrors
+      // the memory store): a node dies only when all its parents die.
+      const { rows: ns } = await pool.query('SELECT id, parent_id FROM nodes WHERE map_id = $1', [mapId]);
+      const { rows: ls } = await pool.query(
+        'SELECT l.parent_id, l.child_id FROM links l JOIN nodes n ON n.id = l.child_id WHERE n.map_id = $1',
+        [mapId]
+      );
+      const parentsOf = (id) => {
+        const prim = ns.find((n) => n.id === id)?.parent_id;
+        const extra = ls.filter((l) => l.child_id === id).map((l) => l.parent_id);
+        return [...(prim ? [prim] : []), ...extra];
+      };
+      const deleteSet = new Set([nodeId]);
+      let changed = true;
+      while (changed) {
+        changed = false;
+        for (const n of ns) {
+          if (deleteSet.has(n.id)) continue;
+          const ps = parentsOf(n.id);
+          if (ps.length > 0 && ps.every((p) => deleteSet.has(p))) {
+            deleteSet.add(n.id);
+            changed = true;
+          }
+        }
+      }
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+        // Re-point survivors whose primary parent is being deleted.
+        for (const n of ns) {
+          if (deleteSet.has(n.id)) continue;
+          if (n.parent_id && deleteSet.has(n.parent_id)) {
+            const survivor = parentsOf(n.id).find((p) => !deleteSet.has(p)) || null;
+            await client.query('UPDATE nodes SET parent_id = $2 WHERE id = $1', [n.id, survivor]);
+            if (survivor) {
+              await client.query('DELETE FROM links WHERE parent_id = $1 AND child_id = $2', [survivor, n.id]);
+            }
+          }
+        }
+        // Delete the set; FK cascade clears their links and votes.
+        await client.query('DELETE FROM nodes WHERE id = ANY($1)', [[...deleteSet]]);
+        await client.query('COMMIT');
+      } catch (e) {
+        await client.query('ROLLBACK');
+        throw e;
+      } finally {
+        client.release();
+      }
+      return { mapId, deleted: deleteSet.size };
     },
 
     async reparent({ nodeId, newParentId }) {
@@ -172,14 +282,17 @@ export function createPostgresStore({ threshold, connectionString }) {
         );
         if (!prows.length) throw new Error('parent-not-found');
         if (prows[0].status !== 'committed') throw new Error('parent-not-committed');
-        // Cycle guard: target must not be a descendant of the node.
+        // Cycle guard over the combined graph (primary edges + links).
         const { rows: cyc } = await pool.query(
-          `WITH RECURSIVE d AS (
-             SELECT id FROM nodes WHERE parent_id = $1
-             UNION ALL
-             SELECT n.id FROM nodes n JOIN d ON n.parent_id = d.id
+          `WITH RECURSIVE edges AS (
+             SELECT parent_id AS p, id AS c FROM nodes WHERE parent_id IS NOT NULL
+             UNION ALL SELECT parent_id AS p, child_id AS c FROM links
+           ),
+           d AS (
+             SELECT c FROM edges WHERE p = $1
+             UNION SELECT e.c FROM edges e JOIN d ON e.p = d.c
            )
-           SELECT id FROM d WHERE id = $2`,
+           SELECT 1 FROM d WHERE c = $2 LIMIT 1`,
           [nodeId, target]
         );
         if (cyc.length) throw new Error('would-create-cycle');
