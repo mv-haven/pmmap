@@ -1,9 +1,14 @@
 # MindMerge — collaborative mind map with proposal-and-merge
 
+**Live demo → https://mindmerge-b5sm.onrender.com**
+
 A mind-map platform where the map is a shared "main branch." Anyone can propose
 new nodes; the crowd upvotes them; and when a proposal reaches the vote
 threshold it **auto-commits** into the master map. Admins can commit or dismiss
 any proposal directly, GitHub-maintainer style.
+
+Open source under the [MIT License](LICENSE) · contributions welcome, see
+[CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Concepts
 
@@ -50,7 +55,12 @@ for you (view it in the service's Environment tab). Build runs `npm run build`
 
 ## Scope (the "bones") and what's next
 
-In: canvas, propose/vote/commit, admin override, live sync, commit log, deploy.
+In: canvas, propose/vote/commit, admin override, live sync, commit log,
+multi-parent (DAG) connections, multi-select + bulk actions, deploy.
 Deliberately deferred: accounts/auth, read-only links, stacked proposals
 (proposing on proposals), comments, version history, image/PDF export, real
 per-user vote integrity, and CRDT merge (currently last-write-wins).
+
+## License
+
+[MIT](LICENSE) © 2026 ClavaInc (Haven).

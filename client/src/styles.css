@@ -9,10 +9,13 @@
 }
 
 * { box-sizing: border-box; }
-html, body, #root { height: 100%; margin: 0; }
+html, body { height: 100%; margin: 0; }
+/* min-height (not height) so a long page like the landing can grow past the
+   viewport; the app fills the screen with 100vh instead of depending on #root. */
+#root { min-height: 100%; }
 body { background: var(--bg); color: var(--ink); }
 
-.app { display: flex; flex-direction: column; height: 100%; }
+.app { display: flex; flex-direction: column; height: 100vh; }
 
 /* ---- Top bar ---- */
 .topbar {
