@@ -384,10 +384,10 @@ export default function App() {
                 onNodeClick={reorg ? (_e, node) => applyReparent(node.id) : undefined}
                 onPaneClick={reorg ? () => applyReparent(null) : undefined}
                 onSelectionChange={onSelectionChange}
-                selectionOnDrag
-                panOnDrag={[1, 2]}
+                panOnDrag
+                selectionOnDrag={false}
                 selectionKeyCode="Shift"
-                multiSelectionKeyCode={['Meta', 'Control', 'Shift']}
+                multiSelectionKeyCode={['Meta', 'Control']}
                 nodeTypes={nodeTypes}
                 fitView
                 proOptions={{ hideAttribution: true }}
