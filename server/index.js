@@ -179,6 +179,21 @@ api.post('/nodes/:id/parents', requireAdmin, async (req, res) => {
   }
 });
 
+// Swap parent/child direction: reverse the edge (body.parentId -> :id) so that
+// :id becomes the parent of body.parentId. Admin only.
+api.post('/nodes/:id/swap-parent', requireAdmin, async (req, res) => {
+  try {
+    const { mapId } = await store.swapDirection({
+      parentId: req.body?.parentId,
+      childId: req.params.id,
+    });
+    await broadcastMap(mapId);
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
 api.post('/nodes/:id/parents/remove', requireAdmin, async (req, res) => {
   try {
     const { mapId } = await store.removeParentLink({

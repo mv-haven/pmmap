@@ -56,6 +56,9 @@ export const api = {
   adminReparent: (nodeId, newParentId) =>
     req('POST', `/api/nodes/${nodeId}/reparent`, { newParentId }),
   updateNode: (nodeId, patch) => req('POST', `/api/nodes/${nodeId}/update`, patch),
+  // Reverse the edge parent -> child so `child` becomes the parent.
+  swapParent: (childId, parentId) =>
+    req('POST', `/api/nodes/${childId}/swap-parent`, { parentId }),
   bulkDelete: (ids) => req('POST', '/api/nodes/bulk-delete', { ids }),
   bulkReparent: (ids, newParentId) =>
     req('POST', '/api/nodes/bulk-reparent', { ids, newParentId }),

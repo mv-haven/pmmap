@@ -233,6 +233,26 @@ export default function App() {
     [selectedIds, loadMap]
   );
 
+  // Reverse the direction between the selected node (parent) and a child.
+  const onSwapChild = useCallback(
+    async (childId) => {
+      const id = selectedIds[0];
+      if (!id) return;
+      try {
+        await api.swapParent(childId, id);
+        flash('Swapped parent and child direction.');
+        await loadMap(mapIdRef.current);
+      } catch (e) {
+        const m = {
+          'would-create-cycle': "Can't swap — it would create a loop.",
+          'no-edge': 'No direct connection to swap.',
+        };
+        flash(m[e.message] || `Swap failed: ${e.message}`);
+      }
+    },
+    [selectedIds, loadMap]
+  );
+
   const onBulkDelete = useCallback(() => {
     setConfirmDelete({ ids: selectedIds, label: `${selectedIds.length} nodes`, isBulk: true });
   }, [selectedIds]);
@@ -513,6 +533,7 @@ export default function App() {
               isAdmin={isAdmin}
               onSave={onSaveNode}
               onSelectNode={selectOnly}
+              onSwap={onSwapChild}
               onClose={clearSelection}
             />
           ) : (

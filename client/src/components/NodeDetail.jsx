@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 
 // Detail panel for a single selected node: its name, alternative names, an
 // editable description, and its child connections. Editing is admin-only.
-export default function NodeDetail({ node, children, isAdmin, onSave, onSelectNode, onClose }) {
+export default function NodeDetail({ node, children, isAdmin, onSave, onSelectNode, onSwap, onClose }) {
   const [text, setText] = useState(node.text);
   const [aliases, setAliases] = useState((node.aliases || []).join(', '));
   const [description, setDescription] = useState(node.description || '');
@@ -88,7 +88,7 @@ export default function NodeDetail({ node, children, isAdmin, onSave, onSelectNo
       {children.length ? (
         <ul className="detail__children">
           {children.map((c) => (
-            <li key={c.id}>
+            <li key={c.id} className="detail__childrow">
               <button className="detail__child" onClick={() => onSelectNode(c.id)}>
                 <span
                   className="detail__dot"
@@ -97,6 +97,15 @@ export default function NodeDetail({ node, children, isAdmin, onSave, onSelectNo
                 <span className="detail__childname">{c.text}</span>
                 {c.via === 'link' && <span className="detail__viatag">linked</span>}
               </button>
+              {isAdmin && (
+                <button
+                  className="detail__swap"
+                  title={`Swap direction: make ${c.text} the parent of ${node.text}`}
+                  onClick={() => onSwap(c.id)}
+                >
+                  ⇄
+                </button>
+              )}
             </li>
           ))}
         </ul>

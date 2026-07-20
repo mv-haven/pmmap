@@ -8,6 +8,30 @@ function normalizeText(t) {
   return (t || '').trim().toLowerCase().replace(/\s+/g, ' ');
 }
 
+// Cycle detection over parent->child edges (parentId) plus links. Matches memory.js.
+function detectCycle(nodesArr, linksArr) {
+  const children = new Map();
+  const add = (p, c) => {
+    if (!children.has(p)) children.set(p, []);
+    children.get(p).push(c);
+  };
+  for (const n of nodesArr) if (n.parentId) add(n.parentId, n.id);
+  for (const l of linksArr) add(l.parentId, l.childId);
+  const st = new Map();
+  const dfs = (u) => {
+    st.set(u, 0);
+    for (const v of children.get(u) || []) {
+      const s = st.get(v);
+      if (s === 0) return true;
+      if (s === undefined && dfs(v)) return true;
+    }
+    st.set(u, 1);
+    return false;
+  };
+  for (const n of nodesArr) if (st.get(n.id) === undefined && dfs(n.id)) return true;
+  return false;
+}
+
 export function createPostgresStore({ threshold, connectionString }) {
   const pool = new pg.Pool({
     connectionString,
@@ -273,6 +297,68 @@ export function createPostgresStore({ threshold, connectionString }) {
         client.release();
       }
       return { mapId, deleted: deleteSet.size };
+    },
+
+    async swapDirection({ parentId, childId }) {
+      const { rows: pair } = await pool.query(
+        'SELECT id, map_id, parent_id FROM nodes WHERE id = ANY($1)',
+        [[parentId, childId]]
+      );
+      const parent = pair.find((r) => r.id === parentId);
+      const child = pair.find((r) => r.id === childId);
+      if (!parent || !child) throw new Error('node-not-found');
+      if (parent.map_id !== child.map_id) throw new Error('different-maps');
+      if (parentId === childId) throw new Error('cannot-parent-to-self');
+      const mapId = parent.map_id;
+
+      const { rows: ns } = await pool.query(
+        'SELECT id, parent_id FROM nodes WHERE map_id = $1',
+        [mapId]
+      );
+      const { rows: ls } = await pool.query(
+        'SELECT l.parent_id, l.child_id FROM links l JOIN nodes n ON n.id = l.child_id WHERE n.map_id = $1',
+        [mapId]
+      );
+      const isPrimary = child.parent_id === parentId;
+      const hasLink = ls.some((l) => l.parent_id === parentId && l.child_id === childId);
+      if (!isPrimary && !hasLink) throw new Error('no-edge');
+
+      // Simulate reversed graph, reject cycles.
+      const simNodes = ns.map((n) => ({ id: n.id, parentId: n.parent_id }));
+      const nodeById = Object.fromEntries(simNodes.map((n) => [n.id, n]));
+      let simLinks = ls.map((l) => ({ parentId: l.parent_id, childId: l.child_id }));
+      if (isPrimary) {
+        nodeById[childId].parentId = parent.parent_id || null;
+        nodeById[parentId].parentId = childId;
+      } else {
+        simLinks = simLinks.filter((l) => !(l.parentId === parentId && l.childId === childId));
+        simLinks.push({ parentId: childId, childId: parentId });
+      }
+      if (detectCycle(simNodes, simLinks)) throw new Error('would-create-cycle');
+
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+        if (isPrimary) {
+          await client.query('UPDATE nodes SET parent_id = $2 WHERE id = $1', [childId, parent.parent_id || null]);
+          await client.query('UPDATE nodes SET parent_id = $2 WHERE id = $1', [parentId, childId]);
+        } else {
+          await client.query('DELETE FROM links WHERE parent_id = $1 AND child_id = $2', [parentId, childId]);
+          if (child.parent_id !== parentId) {
+            await client.query(
+              'INSERT INTO links (parent_id, child_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
+              [childId, parentId]
+            );
+          }
+        }
+        await client.query('COMMIT');
+      } catch (e) {
+        await client.query('ROLLBACK');
+        throw e;
+      } finally {
+        client.release();
+      }
+      return { mapId };
     },
 
     async reparent({ nodeId, newParentId }) {

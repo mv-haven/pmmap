@@ -154,6 +154,13 @@ body { background: var(--bg); color: var(--ink); }
 .detail__save { margin-top: 12px; align-self: flex-start; }
 
 .detail__children { list-style: none; margin: 6px 0 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.detail__childrow { display: flex; align-items: stretch; gap: 4px; }
+.detail__childrow .detail__child { flex: 1; }
+.detail__swap {
+  flex-shrink: 0; width: 34px; border: 1px solid var(--line); background: #f8fafc;
+  border-radius: 8px; cursor: pointer; color: var(--muted); font-size: 15px; font-weight: 700;
+}
+.detail__swap:hover { border-color: var(--accent); color: var(--accent); background: #fff; }
 .detail__child {
   width: 100%; display: flex; align-items: center; gap: 8px; background: #f8fafc;
   border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; cursor: pointer;

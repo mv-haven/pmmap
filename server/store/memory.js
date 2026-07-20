@@ -90,6 +90,30 @@ export function createMemoryStore({ threshold }) {
   function linkExists(parentId, childId) {
     return state.links.some((l) => l.parentId === parentId && l.childId === childId);
   }
+  // Cycle detection over a simulated graph (parent->child edges from parentId,
+  // plus links). nodesArr = array of {id, parentId}; linksArr = [{parentId,childId}].
+  function detectCycle(nodesArr, linksArr) {
+    const children = new Map();
+    const add = (p, c) => {
+      if (!children.has(p)) children.set(p, []);
+      children.get(p).push(c);
+    };
+    for (const n of nodesArr) if (n.parentId) add(n.parentId, n.id);
+    for (const l of linksArr) add(l.parentId, l.childId);
+    const st = new Map(); // 0 = on stack, 1 = done
+    const dfs = (u) => {
+      st.set(u, 0);
+      for (const v of children.get(u) || []) {
+        const s = st.get(v);
+        if (s === 0) return true;
+        if (s === undefined && dfs(v)) return true;
+      }
+      st.set(u, 1);
+      return false;
+    };
+    for (const n of nodesArr) if (st.get(n.id) === undefined && dfs(n.id)) return true;
+    return false;
+  }
 
   return {
     threshold,
@@ -278,6 +302,52 @@ export function createMemoryStore({ threshold }) {
       );
       scheduleSave();
       return { mapId, deleted: deleteSet.size };
+    },
+
+    // Reverse the edge parentId -> childId into childId -> parentId.
+    async swapDirection({ parentId, childId }) {
+      const parent = state.nodes[parentId];
+      const child = state.nodes[childId];
+      if (!parent || !child) throw new Error('node-not-found');
+      if (parent.mapId !== child.mapId) throw new Error('different-maps');
+      if (parentId === childId) throw new Error('cannot-parent-to-self');
+
+      const isPrimary = child.parentId === parentId;
+      const linkIdx = state.links.findIndex(
+        (l) => l.parentId === parentId && l.childId === childId
+      );
+      if (!isPrimary && linkIdx === -1) throw new Error('no-edge');
+
+      // Simulate the reversed graph and reject if it would create a cycle.
+      const simNodes = Object.values(state.nodes)
+        .filter((n) => n.mapId === parent.mapId)
+        .map((n) => ({ id: n.id, parentId: n.parentId }));
+      const nodeById = Object.fromEntries(simNodes.map((n) => [n.id, n]));
+      let simLinks = state.links.map((l) => ({ ...l }));
+      if (isPrimary) {
+        nodeById[childId].parentId = parent.parentId || null;
+        nodeById[parentId].parentId = childId;
+      } else {
+        simLinks = simLinks.filter((_, i) => i !== linkIdx);
+        simLinks.push({ parentId: childId, childId: parentId });
+      }
+      if (detectCycle(simNodes, simLinks)) throw new Error('would-create-cycle');
+
+      // Apply.
+      if (isPrimary) {
+        child.parentId = parent.parentId || null;
+        parent.parentId = childId;
+      } else {
+        state.links.splice(linkIdx, 1);
+        if (
+          parent.parentId !== childId &&
+          !linkExists(childId, parentId)
+        ) {
+          state.links.push({ parentId: childId, childId: parentId });
+        }
+      }
+      scheduleSave();
+      return { mapId: parent.mapId };
     },
 
     async reparent({ nodeId, newParentId }) {

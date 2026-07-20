@@ -213,6 +213,19 @@ test('a node can have multiple parents (add + reject cycle)', async () => {
   assert.equal(cyc.body.error, 'would-create-cycle');
 });
 
+test('swap reverses a parent/child edge', async () => {
+  const { mapId, rootId } = await freshMap();
+  const p = (await post(`/api/maps/${mapId}/proposals`, { parentId: rootId, text: 'Parent' }, true)).body.node;
+  const c = (await post(`/api/maps/${mapId}/proposals`, { parentId: p.id, text: 'Child' }, true)).body.node;
+  const sw = await post(`/api/nodes/${c.id}/swap-parent`, { parentId: p.id }, true);
+  assert.equal(sw.status, 200);
+  const full = await get(`/api/maps/${mapId}`);
+  const P = full.body.nodes.find((n) => n.id === p.id);
+  const C = full.body.nodes.find((n) => n.id === c.id);
+  assert.equal(C.parentId, rootId, 'former child moved up to the old grandparent');
+  assert.equal(P.parentId, c.id, 'former parent now hangs under the former child');
+});
+
 test('deleting one parent spares a child that has another parent', async () => {
   const { mapId, rootId } = await freshMap();
   const t1 = (await post(`/api/maps/${mapId}/proposals`, { parentId: rootId, text: 'P1' }, true)).body.node;
