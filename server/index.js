@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
+import crypto from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createServer } from 'node:http';
@@ -13,8 +14,20 @@ const ADMIN_KEY = process.env.ADMIN_KEY || 'changeme-admin-key';
 
 const store = await createStore();
 const app = express();
+app.set('trust proxy', true); // behind Render/Cloudflare — read real client IP
 app.use(cors());
 app.use(express.json());
+
+// A privacy-preserving per-client vote key: a short hash of the client IP, so a
+// single machine can't stuff a proposal by clearing its browser id.
+function voteKey(req, fallback) {
+  const ip = req.ip;
+  const loopback = !ip || ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1';
+  // On real clients, dedupe by hashed IP so one machine can't stuff a proposal.
+  // Locally (loopback) fall back to the client-supplied id.
+  if (loopback) return fallback || 'anon';
+  return 'ip:' + crypto.createHash('sha256').update(ip).digest('hex').slice(0, 16);
+}
 
 const api = express.Router();
 
@@ -68,8 +81,9 @@ api.post('/maps/:id/proposals', async (req, res) => {
 
 api.post('/nodes/:id/vote', async (req, res) => {
   try {
-    const voterId = req.body?.voterId;
-    if (!voterId) return res.status(400).json({ error: 'voterId-required' });
+    // Dedupe by hashed client IP (one vote per machine per node), falling back
+    // to the client-supplied id only when no IP is available (local dev).
+    const voterId = voteKey(req, req.body?.voterId);
     const { node, committed } = await store.vote({ nodeId: req.params.id, voterId });
     await broadcastMap(node.mapId);
     res.json({ node, committed });
@@ -160,6 +174,17 @@ api.post('/nodes/:id/update', async (req, res) => {
     });
     await broadcastMap(node.mapId);
     res.json(node);
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+// Revert a committed-node edit to the value it held before that edit. Admin only.
+api.post('/events/:id/revert', requireAdmin, async (req, res) => {
+  try {
+    const { mapId } = await store.revertEdit({ eventId: req.params.id });
+    await broadcastMap(mapId);
+    res.json({ ok: true });
   } catch (e) {
     res.status(400).json({ error: e.message });
   }

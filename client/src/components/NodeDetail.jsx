@@ -3,11 +3,19 @@ import { useEffect, useState } from 'react';
 // Detail panel for a single selected node: its name, alternative names, an
 // editable definition, and its child connections. Anyone can edit; editing a
 // committed node is recorded as a commit. Structural swap stays admin-only.
-export default function NodeDetail({ node, children, isAdmin, onSave, onSelectNode, onSwap, onClose }) {
+export default function NodeDetail({ node, children, isAdmin, onSave, onSelectNode, onSwap, onAddChild, onClose }) {
   const [text, setText] = useState(node.text);
   const [aliases, setAliases] = useState((node.aliases || []).join(', '));
   const [description, setDescription] = useState(node.description || '');
   const [saving, setSaving] = useState(false);
+  const [childText, setChildText] = useState('');
+
+  const addChild = () => {
+    const t = childText.trim();
+    if (!t) return;
+    onAddChild(t);
+    setChildText('');
+  };
 
   // Reset the form whenever a different node is selected.
   useEffect(() => {
@@ -102,6 +110,21 @@ export default function NodeDetail({ node, children, isAdmin, onSave, onSelectNo
         </ul>
       ) : (
         <p className="detail__empty">No child connections.</p>
+      )}
+
+      {node.status === 'committed' && (
+        <div className="detail__addchild">
+          <input
+            className="detail__input"
+            placeholder="Add a child term…"
+            value={childText}
+            onChange={(e) => setChildText(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && addChild()}
+          />
+          <button className="detail__addbtn" onClick={addChild} disabled={!childText.trim()}>
+            + Add
+          </button>
+        </div>
       )}
     </aside>
   );

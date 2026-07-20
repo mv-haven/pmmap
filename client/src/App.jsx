@@ -43,6 +43,8 @@ export default function App() {
   const wsRef = useRef(null);
   const draggingRef = useRef(false);
   const selectedIdsRef = useRef([]);
+  const rfRef = useRef(null);
+  const [search, setSearch] = useState('');
 
   const mapIdRef = useRef(null);
 
@@ -233,6 +235,35 @@ export default function App() {
     [selectedIds, loadMap]
   );
 
+  // Propose/add a child under the node open in the detail panel.
+  const onAddChild = useCallback(
+    async (text) => {
+      const parentId = selectedIds[0];
+      if (!parentId) return;
+      try {
+        const result = await api.propose(mapIdRef.current, { parentId, text });
+        flash(result.merged ? 'That already exists — folded in.' : result.committed ? 'Child added.' : 'Child proposed.');
+        await loadMap(mapIdRef.current);
+      } catch (e) {
+        flash(e.message === 'duplicate-committed' ? 'That term already exists here.' : `Could not add: ${e.message}`);
+      }
+    },
+    [selectedIds, loadMap]
+  );
+
+  const onRevert = useCallback(
+    async (eventId) => {
+      try {
+        await api.revertEdit(eventId);
+        flash('Edit reverted.');
+        await loadMap(mapIdRef.current);
+      } catch (e) {
+        flash(`Revert failed: ${e.message}`);
+      }
+    },
+    [loadMap]
+  );
+
   // Reverse the direction between the selected node (parent) and a child.
   const onSwapChild = useCallback(
     async (childId) => {
@@ -404,6 +435,27 @@ export default function App() {
     [threshold, isAdmin, hasVoted, onVote, onCommit, onDismiss, onDelete, onStartReorg, reorg]
   );
 
+  const searchResults = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q || !map) return [];
+    return map.nodes
+      .filter(
+        (n) =>
+          n.text.toLowerCase().includes(q) ||
+          (n.aliases || []).some((a) => a.toLowerCase().includes(q))
+      )
+      .slice(0, 8);
+  }, [search, map]);
+
+  const onPickSearch = useCallback(
+    (id) => {
+      setSearch('');
+      selectOnly(id);
+      rfRef.current?.fitView({ nodes: [{ id }], duration: 500, maxZoom: 1.2 });
+    },
+    [selectOnly]
+  );
+
   const counts = useMemo(() => {
     const committed = map?.nodes.filter((n) => n.status === 'committed').length || 0;
     const proposed = map?.nodes.filter((n) => n.status === 'proposed').length || 0;
@@ -468,6 +520,32 @@ export default function App() {
               {counts.committed} committed · {counts.proposed} proposed · merge at {threshold} ▲
             </span>
           </div>
+
+          <div className="topbar__search">
+            <input
+              className="topbar__searchinput"
+              placeholder="Search terms…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+            {searchResults.length > 0 && (
+              <ul className="topbar__results">
+                {searchResults.map((r) => (
+                  <li key={r.id}>
+                    <button onClick={() => onPickSearch(r.id)}>
+                      <span className="topbar__resultname">
+                        {r.text}
+                        {r.aliases?.length > 0 && <em> · {r.aliases.join(', ')}</em>}
+                      </span>
+                      <span className={`topbar__resultstatus topbar__resultstatus--${r.status}`}>
+                        {r.status}
+                      </span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
           <div className="topbar__right">
             <button className="primarybtn" onClick={() => setProposeParent(ROOT_SENTINEL)}>
               + New node
@@ -507,6 +585,7 @@ export default function App() {
                 onNodeDragStop={onNodeDragStop}
                 onNodeClick={reorg ? (_e, node) => applyReparent(node.id) : undefined}
                 onPaneClick={reorg ? () => applyReparent(null) : undefined}
+                onInit={(inst) => (rfRef.current = inst)}
                 onSelectionChange={onSelectionChange}
                 onConnect={isAdmin ? onConnect : undefined}
                 onEdgeClick={onEdgeClick}
@@ -534,10 +613,11 @@ export default function App() {
               onSave={onSaveNode}
               onSelectNode={selectOnly}
               onSwap={onSwapChild}
+              onAddChild={onAddChild}
               onClose={clearSelection}
             />
           ) : (
-            <ActivityFeed activity={map?.activity} />
+            <ActivityFeed activity={map?.activity} isAdmin={isAdmin} onRevert={onRevert} />
           )}
 
           {isAdmin && selectedIds.length >= 2 && !reorg && (

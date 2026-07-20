@@ -56,6 +56,7 @@ export const api = {
   adminReparent: (nodeId, newParentId) =>
     req('POST', `/api/nodes/${nodeId}/reparent`, { newParentId }),
   updateNode: (nodeId, patch) => req('POST', `/api/nodes/${nodeId}/update`, patch),
+  revertEdit: (eventId) => req('POST', `/api/events/${eventId}/revert`),
   // Reverse the edge parent -> child so `child` becomes the parent.
   swapParent: (childId, parentId) =>
     req('POST', `/api/nodes/${childId}/swap-parent`, { parentId }),

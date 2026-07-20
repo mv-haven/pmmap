@@ -121,8 +121,10 @@ export function createPostgresStore({ threshold, connectionString }) {
           kind TEXT NOT NULL,
           text TEXT,
           summary TEXT,
+          prev JSONB,
           at TIMESTAMPTZ NOT NULL DEFAULT now()
         );
+        ALTER TABLE events ADD COLUMN IF NOT EXISTS prev JSONB;
       `);
     },
 
@@ -500,15 +502,42 @@ export function createPostgresStore({ threshold, connectionString }) {
         vals
       );
       const updated = rows[0];
-      // Editing a committed node is a commit; log it.
+      // Editing a committed node is a commit; log it with a revertible snapshot.
       if (updated.status === 'committed' && changed.length) {
+        const prev = { text: node.text, description: node.description || '', aliases: node.aliases || [] };
         await pool.query(
-          `INSERT INTO events (id, map_id, node_id, kind, text, summary)
-           VALUES ($1, $2, $3, 'edit', $4, $5)`,
-          [nanoid(10), updated.map_id, updated.id, updated.text, `${changed.join(' & ')} updated`]
+          `INSERT INTO events (id, map_id, node_id, kind, text, summary, prev)
+           VALUES ($1, $2, $3, 'edit', $4, $5, $6)`,
+          [nanoid(10), updated.map_id, updated.id, updated.text, `${changed.join(' & ')} updated`, JSON.stringify(prev)]
         );
       }
       return rowToNode(updated);
+    },
+
+    async revertEdit({ eventId }) {
+      const { rows: evs } = await pool.query('SELECT * FROM events WHERE id = $1', [eventId]);
+      if (!evs.length) throw new Error('event-not-found');
+      const ev = evs[0];
+      const { rows: ns } = await pool.query('SELECT * FROM nodes WHERE id = $1', [ev.node_id]);
+      if (!ns.length) throw new Error('node-not-found');
+      const node = ns[0];
+      const prev = ev.prev || {};
+      const sets = [];
+      const vals = [node.id];
+      let i = 2;
+      if (typeof prev.text === 'string' && prev.text) { sets.push(`text = $${i++}`); vals.push(prev.text); }
+      if (typeof prev.description === 'string') { sets.push(`description = $${i++}`); vals.push(prev.description); }
+      if (Array.isArray(prev.aliases)) { sets.push(`aliases = $${i++}`); vals.push(prev.aliases); }
+      if (sets.length) {
+        await pool.query(`UPDATE nodes SET ${sets.join(', ')} WHERE id = $1`, vals);
+      }
+      const before = { text: node.text, description: node.description || '', aliases: node.aliases || [] };
+      await pool.query(
+        `INSERT INTO events (id, map_id, node_id, kind, text, summary, prev)
+         VALUES ($1, $2, $3, 'edit', $4, 'reverted an edit', $5)`,
+        [nanoid(10), node.map_id, node.id, prev.text || node.text, JSON.stringify(before)]
+      );
+      return { mapId: node.map_id };
     },
 
     async setPosition({ nodeId, x, y }) {
@@ -531,13 +560,13 @@ export function createPostgresStore({ threshold, connectionString }) {
 
     async getActivity(mapId) {
       const { rows } = await pool.query(
-        `SELECT 'c:' || n.id AS id, 'commit' AS kind, n.text,
-                COALESCE(p.text, '(root)') AS parent_text, NULL::text AS summary,
-                n.committed_at AS at
+        `SELECT 'c:' || n.id AS id, NULL::text AS event_id, NULL::text AS node_id,
+                'commit' AS kind, n.text, COALESCE(p.text, '(root)') AS parent_text,
+                NULL::text AS summary, n.committed_at AS at
            FROM nodes n LEFT JOIN nodes p ON p.id = n.parent_id
           WHERE n.map_id = $1 AND n.status = 'committed' AND n.parent_id IS NOT NULL
          UNION ALL
-         SELECT 'e:' || e.id, 'edit', e.text, NULL, e.summary, e.at
+         SELECT 'e:' || e.id, e.id, e.node_id, 'edit', e.text, NULL, e.summary, e.at
            FROM events e WHERE e.map_id = $1
          ORDER BY at DESC
          LIMIT 30`,
@@ -545,6 +574,8 @@ export function createPostgresStore({ threshold, connectionString }) {
       );
       return rows.map((r) => ({
         id: r.id,
+        eventId: r.event_id,
+        nodeId: r.node_id,
         kind: r.kind,
         text: r.text,
         parentText: r.parent_text,

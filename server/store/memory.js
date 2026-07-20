@@ -399,6 +399,11 @@ export function createMemoryStore({ threshold }) {
     async updateNode({ nodeId, text, description, aliases }) {
       const node = state.nodes[nodeId];
       if (!node) throw new Error('node-not-found');
+      const before = {
+        text: node.text,
+        description: node.description || '',
+        aliases: [...(node.aliases || [])],
+      };
       const changed = [];
       if (typeof text === 'string' && text.trim() && text.trim() !== node.text) {
         node.text = text.trim();
@@ -425,11 +430,41 @@ export function createMemoryStore({ threshold }) {
           kind: 'edit',
           text: node.text,
           summary: `${changed.join(' & ')} updated`,
+          prev: before, // snapshot to revert to
           at: new Date().toISOString(),
         });
       }
       scheduleSave();
       return shapeNode(node);
+    },
+
+    // Restore a node to the value it held before a given edit event.
+    async revertEdit({ eventId }) {
+      const ev = state.events.find((e) => e.id === eventId);
+      if (!ev) throw new Error('event-not-found');
+      const node = state.nodes[ev.nodeId];
+      if (!node) throw new Error('node-not-found');
+      const prev = ev.prev || {};
+      const before = {
+        text: node.text,
+        description: node.description || '',
+        aliases: [...(node.aliases || [])],
+      };
+      if (typeof prev.text === 'string' && prev.text) node.text = prev.text;
+      if (typeof prev.description === 'string') node.description = prev.description;
+      if (Array.isArray(prev.aliases)) node.aliases = prev.aliases;
+      state.events.push({
+        id: nanoid(10),
+        mapId: node.mapId,
+        nodeId: node.id,
+        kind: 'edit',
+        text: node.text,
+        summary: 'reverted an edit',
+        prev: before,
+        at: new Date().toISOString(),
+      });
+      scheduleSave();
+      return { mapId: node.mapId };
     },
 
     async setPosition({ nodeId, x, y }) {
@@ -465,7 +500,15 @@ export function createMemoryStore({ threshold }) {
         }));
       const edits = state.events
         .filter((e) => e.mapId === mapId)
-        .map((e) => ({ id: `e:${e.id}`, kind: 'edit', text: e.text, summary: e.summary, at: e.at }));
+        .map((e) => ({
+          id: `e:${e.id}`,
+          eventId: e.id,
+          nodeId: e.nodeId,
+          kind: 'edit',
+          text: e.text,
+          summary: e.summary,
+          at: e.at,
+        }));
       return [...commits, ...edits].sort((a, b) => (a.at < b.at ? 1 : -1)).slice(0, 30);
     },
   };

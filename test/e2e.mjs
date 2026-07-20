@@ -201,6 +201,35 @@ test('anyone can edit; a committed edit is logged as a commit', async () => {
   );
 });
 
+test('reverting a committed edit restores the previous value', async () => {
+  const { mapId, rootId } = await freshMap();
+  const c = (await post(`/api/maps/${mapId}/proposals`, { parentId: rootId, text: 'Revert Term' }, true)).body.node;
+  await post(`/api/nodes/${c.id}/update`, { description: 'first' });
+  await post(`/api/nodes/${c.id}/update`, { description: 'second' });
+  const full1 = await get(`/api/maps/${mapId}`);
+  const latestEdit = full1.body.activity.filter((a) => a.kind === 'edit')[0];
+  const rev = await post(`/api/events/${latestEdit.eventId}/revert`, {}, true);
+  assert.equal(rev.status, 200);
+  const full2 = await get(`/api/maps/${mapId}`);
+  assert.equal(full2.body.nodes.find((n) => n.id === c.id).description, 'first');
+});
+
+test('votes are deduped by client IP', async () => {
+  const { mapId, rootId } = await freshMap();
+  const c = (await post(`/api/maps/${mapId}/proposals`, { parentId: rootId, text: 'IP dedup' })).body.node;
+  const voteFrom = (ip, voterId) =>
+    fetch(`${BASE}/api/nodes/${c.id}/vote`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Forwarded-For': ip },
+      body: JSON.stringify({ voterId }),
+    }).then((r) => r.json());
+  await voteFrom('203.0.113.5', 'a');
+  const same = await voteFrom('203.0.113.5', 'b'); // same IP, different id
+  assert.equal(same.node.upvotes, 1);
+  const other = await voteFrom('203.0.113.6', 'c'); // different IP
+  assert.equal(other.node.upvotes, 2);
+});
+
 test('editing a proposed node does not log a commit', async () => {
   const { mapId, rootId } = await freshMap();
   const p = (await post(`/api/maps/${mapId}/proposals`, { parentId: rootId, text: 'Draft Term' })).body.node;
