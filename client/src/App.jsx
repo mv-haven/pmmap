@@ -355,6 +355,63 @@ export default function App() {
     [map]
   );
 
+  // Focus mode: clicking a single node dims everything not related to it. The
+  // kept set is the node itself, ALL of its descendants (children, grandchildren,
+  // …), and its DIRECT parents only (one level up). Off during multi-select and
+  // re-org so those flows aren't obscured. Null means "no focus, show everything".
+  const focusIds = useMemo(() => {
+    if (!map || reorg || selectedIds.length !== 1) return null;
+    const rootId = selectedIds[0];
+    const childrenOf = new Map();
+    const addChild = (p, c) => {
+      if (!childrenOf.has(p)) childrenOf.set(p, []);
+      childrenOf.get(p).push(c);
+    };
+    for (const n of map.nodes) if (n.parentId) addChild(n.parentId, n.id);
+    for (const l of map.links || []) addChild(l.parentId, l.childId);
+
+    const focus = new Set([rootId]);
+    const stack = [rootId]; // walk all downstream descendants
+    while (stack.length) {
+      for (const c of childrenOf.get(stack.pop()) || []) {
+        if (!focus.has(c)) { focus.add(c); stack.push(c); }
+      }
+    }
+    // one level up: the selected node's direct parents (primary + link)
+    const sel = map.nodes.find((n) => n.id === rootId);
+    if (sel?.parentId) focus.add(sel.parentId);
+    for (const l of map.links || []) if (l.childId === rootId) focus.add(l.parentId);
+    return focus;
+  }, [map, reorg, selectedIds]);
+
+  const DIM = { transition: 'opacity .18s ease' };
+  // Overlay dimming onto the live node/edge arrays without disturbing positions,
+  // selection, or drag state (those stay owned by rfNodes / layout).
+  const displayNodes = useMemo(
+    () =>
+      focusIds
+        ? rfNodes.map((n) => ({
+            ...n,
+            style: { ...n.style, ...DIM, opacity: focusIds.has(n.id) ? 1 : 0.12 },
+          }))
+        : rfNodes.map((n) => (n.style?.opacity != null ? { ...n, style: { ...n.style, ...DIM, opacity: 1 } } : n)),
+    [rfNodes, focusIds]
+  );
+  const displayEdges = useMemo(
+    () =>
+      focusIds
+        ? flowEdges.map((e) => ({
+            ...e,
+            style: {
+              ...e.style,
+              ...DIM,
+              opacity: focusIds.has(e.source) && focusIds.has(e.target) ? 1 : 0.07,
+            },
+          }))
+        : flowEdges,
+    [flowEdges, focusIds]
+  );
+
   // Re-seed positions from the map on every change — except mid-drag, so an
   // incoming live update never yanks the node out from under the cursor.
   useEffect(() => {
@@ -578,8 +635,8 @@ export default function App() {
           <div className="canvas">
             <ReactFlowProvider>
               <ReactFlow
-                nodes={rfNodes}
-                edges={flowEdges}
+                nodes={displayNodes}
+                edges={displayEdges}
                 onNodesChange={onNodesChange}
                 onNodeDragStart={onNodeDragStart}
                 onNodeDragStop={onNodeDragStop}
